@@ -1,0 +1,46 @@
+[package]
+name = "amusic"
+version = "0.2.0"
+description = "Apple Music to Last.fm scrobbler — desktop deployment wizard"
+authors = ["you"]
+edition = "2021"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(mobile)'] }
+
+[lib]
+name = "amusic_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Tauri core + plugins
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"        # open default browser for OAuth
+tauri-plugin-store = "2"        # non-secret state (last deploy info, ui prefs)
+tauri-plugin-oauth = "2"        # Last.fm loopback OAuth flow
+tauri-plugin-single-instance = "2"  # prevent double-launch
+
+# HTTP + serialization
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+# Security / credentials
+keyring = { version = "3", features = ["windows-native"] } # Windows Credential Manager
+rand = "0.8"                    # ADMIN_SECRET generation
+
+# Utility
+anyhow = "1"                    # error handling for commands
+thiserror = "1"                 # typed errors for auth modules
+md-5 = "0.10"                   # Last.fm auth.getSession signing
+chrono = { version = "0.4", features = ["serde"] }
+url = "2"
+base64 = "0.22"
+hex = "0.4"
+log = "0.4"
+env_logger = "0.11"
+open = "1"                      # open URLs in default browser

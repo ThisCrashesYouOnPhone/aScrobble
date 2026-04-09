@@ -1,0 +1,33 @@
+# Template wrangler.toml for local dev via `wrangler dev`.
+# Production deployment happens through the desktop app's Cloudflare
+# REST API client, not through wrangler — this file exists so the
+# Worker can be tested locally before being bundled into the exe.
+#
+# For local dev:
+#   1. Create a KV namespace:  npx wrangler kv namespace create AMUSIC_STATE
+#   2. Paste the returned id below under kv_namespaces.id
+#   3. Put your secrets:
+#        npx wrangler secret put APPLE_DEV_TOKEN
+#        npx wrangler secret put APPLE_MUSIC_USER_TOKEN
+#        npx wrangler secret put LASTFM_API_KEY
+#        npx wrangler secret put LASTFM_SHARED_SECRET
+#        npx wrangler secret put LASTFM_SESSION_KEY
+#        npx wrangler secret put STATUS_AUTH_KEY
+#   4. npx wrangler dev
+
+name = "amusic-scrobbler"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 5-minute polling. Safe under CF free tier (288 runs/day vs 100k limit).
+[triggers]
+crons = ["*/5 * * * *"]
+
+[[kv_namespaces]]
+binding = "AMUSIC_STATE"
+id = "REPLACE_ME_AFTER_kv_namespace_create"
+
+[vars]
+# Non-secret toggles. Secrets go via `wrangler secret put` (see comments above).
+LOG_LEVEL = "info"
