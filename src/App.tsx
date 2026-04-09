@@ -23,7 +23,12 @@ export default function App() {
         setCreds(c);
         setSyncError(null);
         // Resume from where the user left off
-        if (c.cloudflare_token && c.cloudflare_account_id && c.lastfm && c.apple) {
+        if (
+          (c.cloudflare_oauth || c.cloudflare_token) &&
+          c.cloudflare_account_id &&
+          c.lastfm &&
+          c.apple
+        ) {
           setStep("deploy");
         }
       })
@@ -103,7 +108,9 @@ export default function App() {
         )}
         {step === "cloudflare" && (
           <CloudflareStep
-            existing={creds?.cloudflare_token ?? null}
+            existingToken={creds?.cloudflare_token ?? null}
+            existingOauth={creds?.cloudflare_oauth ?? null}
+            existingAccountId={creds?.cloudflare_account_id ?? null}
             onComplete={async () => {
               const ok = await refreshCreds();
               if (!ok) return;

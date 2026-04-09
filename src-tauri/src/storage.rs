@@ -12,7 +12,7 @@
 use anyhow::{anyhow, Result};
 use keyring::Entry;
 
-use crate::commands::{AppleTokens, LastfmSession};
+use crate::commands::{AppleTokens, CloudflareOauth, LastfmSession};
 
 const SERVICE: &str = "dev.amusic.app";
 
@@ -20,6 +20,7 @@ const SERVICE: &str = "dev.amusic.app";
 const KEY_APPLE: &str = "apple-tokens";
 const KEY_LASTFM: &str = "lastfm-session";
 const KEY_CF_TOKEN: &str = "cloudflare-token";
+const KEY_CF_OAUTH: &str = "cloudflare-oauth";
 const KEY_CF_ACCOUNT: &str = "cloudflare-account-id";
 // The shared secret that auths the deployed worker's /status and /trigger
 // endpoints. Randomly generated per deploy, stored both here and as the
@@ -106,6 +107,22 @@ pub fn load_cloudflare_token() -> Result<Option<String>> {
     read_optional(&entry(KEY_CF_TOKEN)?)
 }
 
+pub fn save_cloudflare_oauth(oauth: &CloudflareOauth) -> Result<()> {
+    let json = serde_json::to_string(oauth)?;
+    write(&entry(KEY_CF_OAUTH)?, &json)
+}
+
+pub fn load_cloudflare_oauth() -> Result<Option<CloudflareOauth>> {
+    match read_optional(&entry(KEY_CF_OAUTH)?)? {
+        None => Ok(None),
+        Some(s) => Ok(Some(serde_json::from_str(&s)?)),
+    }
+}
+
+pub fn clear_cloudflare_oauth() -> Result<()> {
+    delete_if_exists(&entry(KEY_CF_OAUTH)?)
+}
+
 pub fn save_cloudflare_account_id(account_id: &str) -> Result<()> {
     write(&entry(KEY_CF_ACCOUNT)?, account_id)
 }
@@ -131,6 +148,7 @@ pub fn clear_all() -> Result<()> {
     delete_if_exists(&entry(KEY_APPLE)?)?;
     delete_if_exists(&entry(KEY_LASTFM)?)?;
     delete_if_exists(&entry(KEY_CF_TOKEN)?)?;
+    delete_if_exists(&entry(KEY_CF_OAUTH)?)?;
     delete_if_exists(&entry(KEY_CF_ACCOUNT)?)?;
     delete_if_exists(&entry(KEY_STATUS_AUTH)?)?;
     Ok(())

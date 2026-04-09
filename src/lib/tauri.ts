@@ -13,6 +13,7 @@ import type {
   AppleTokens,
   LastfmSession,
   CloudflareAccount,
+  CloudflareOauth,
   StoredCredentials,
   DeployStatus,
 } from "../types";
@@ -49,11 +50,20 @@ export const cloudflareListAccounts = (
 ): Promise<CloudflareAccount[]> =>
   invoke("cloudflare_list_accounts", { token });
 
+export const cloudflareOauthLogin = (): Promise<CloudflareOauth> =>
+  invoke("cloudflare_oauth_login");
+
+export const cloudflareOauthLogout = (): Promise<void> =>
+  invoke("cloudflare_oauth_logout");
+
 export const cloudflareSaveCredentials = (
   token: string,
   accountId: string
 ): Promise<void> =>
   invoke("cloudflare_save_credentials", { token, accountId });
+
+export const cloudflareSaveAccountId = (accountId: string): Promise<void> =>
+  invoke("cloudflare_save_account_id", { accountId });
 
 export const cloudflareTemplateUrl = (): Promise<string> =>
   invoke("cloudflare_template_url");

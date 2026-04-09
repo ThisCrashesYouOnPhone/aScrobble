@@ -2,4 +2,5 @@
 
 pub mod apple;
 pub mod cloudflare;
+pub mod cloudflare_oauth;
 pub mod lastfm;

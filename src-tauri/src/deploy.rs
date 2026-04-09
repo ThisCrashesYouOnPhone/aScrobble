@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::storage;
+use crate::{auth, storage};
 
 const CF_API: &str = "https://api.cloudflare.com/client/v4";
 const WORKER_NAME: &str = "amusic-scrobbler";
@@ -68,8 +68,7 @@ pub async fn deploy_full(app: &AppHandle, account_id: &str) -> Result<String> {
     let script = read_worker_script(app)?;
 
     emit(app, 2, "Loading credentials from keychain");
-    let token = storage::load_cloudflare_token()?
-        .ok_or_else(|| anyhow!("Cloudflare token missing from keychain"))?;
+    let token = resolve_cloudflare_api_token().await?;
     let apple = storage::load_apple_tokens()?
         .ok_or_else(|| anyhow!("Apple tokens missing from keychain"))?;
     let lastfm = storage::load_lastfm_session()?
@@ -105,6 +104,29 @@ fn build_client() -> reqwest::Client {
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .expect("reqwest client build")
+}
+
+async fn resolve_cloudflare_api_token() -> Result<String> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some(stored_oauth) = storage::load_cloudflare_oauth()? {
+        if now < stored_oauth.expires_at - 60 {
+            return Ok(stored_oauth.access_token);
+        }
+
+        let refreshed = auth::cloudflare_oauth::refresh_access_token(&stored_oauth.refresh_token)
+            .await
+            .map_err(|e| anyhow!("Cloudflare OAuth token refresh failed: {}", e))?;
+        storage::save_cloudflare_oauth(&refreshed)?;
+        return Ok(refreshed.access_token);
+    }
+
+    if let Some(api_token) = storage::load_cloudflare_token()? {
+        return Ok(api_token);
+    }
+
+    Err(anyhow!(
+        "No Cloudflare credentials found. Authenticate with Cloudflare first."
+    ))
 }
 
 fn read_worker_script(app: &AppHandle) -> Result<String> {
@@ -446,8 +468,7 @@ pub async fn fetch_status(
     account_id: &str,
 ) -> Result<crate::commands::DeployStatus> {
     let _ = app; // unused for now
-    let token = storage::load_cloudflare_token()?
-        .ok_or_else(|| anyhow!("Cloudflare token missing"))?;
+    let token = resolve_cloudflare_api_token().await?;
 
     let client = build_client();
     let url = format!(

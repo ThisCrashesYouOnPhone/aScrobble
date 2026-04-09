@@ -48,7 +48,10 @@ pub fn run() {
             // Cloudflare
             commands::cloudflare_validate_token,
             commands::cloudflare_list_accounts,
+            commands::cloudflare_oauth_login,
+            commands::cloudflare_oauth_logout,
             commands::cloudflare_save_credentials,
+            commands::cloudflare_save_account_id,
             commands::cloudflare_template_url,
 
             // Credential storage

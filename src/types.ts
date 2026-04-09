@@ -19,9 +19,17 @@ export interface CloudflareAccount {
   name: string;
 }
 
+export interface CloudflareOauth {
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+  scope: string;
+}
+
 export interface StoredCredentials {
   apple: AppleTokens | null;
   lastfm: LastfmSession | null;
+  cloudflare_oauth: CloudflareOauth | null;
   cloudflare_token: string | null;
   cloudflare_account_id: string | null;
 }

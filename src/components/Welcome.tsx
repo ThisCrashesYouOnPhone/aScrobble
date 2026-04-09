@@ -10,7 +10,7 @@ export function Welcome({ onNext, hasCreds }: WelcomeProps) {
     hasCreds &&
     hasCreds.apple &&
     hasCreds.lastfm &&
-    hasCreds.cloudflare_token &&
+    (hasCreds.cloudflare_oauth || hasCreds.cloudflare_token) &&
     hasCreds.cloudflare_account_id;
 
   return (

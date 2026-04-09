@@ -37,6 +37,7 @@ rand = "0.8"                    # ADMIN_SECRET generation
 anyhow = "1"                    # error handling for commands
 thiserror = "1"                 # typed errors for auth modules
 md-5 = "0.10"                   # Last.fm auth.getSession signing
+sha2 = "0.10"                   # Cloudflare OAuth PKCE SHA-256 challenge
 chrono = { version = "0.4", features = ["serde"] }
 url = "2"
 base64 = "0.22"

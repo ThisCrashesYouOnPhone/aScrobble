@@ -32,6 +32,11 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
         (input.lastfm as StoredCredentials["lastfm"] | undefined) ??
         (input.lastFm as StoredCredentials["lastfm"] | undefined) ??
         null,
+      cloudflare_oauth:
+        (input.cloudflare_oauth as StoredCredentials["cloudflare_oauth"] | undefined) ??
+        (input.cloudflareOauth as StoredCredentials["cloudflare_oauth"] | undefined) ??
+        (cloudflareObj.oauth as StoredCredentials["cloudflare_oauth"] | undefined) ??
+        null,
       cloudflare_token:
         (input.cloudflare_token as string | null | undefined) ??
         (input.cloudflareToken as string | null | undefined) ??
@@ -114,7 +119,7 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
   const allReady =
     effectiveCreds.apple &&
     effectiveCreds.lastfm &&
-    effectiveCreds.cloudflare_token &&
+    (effectiveCreds.cloudflare_oauth || effectiveCreds.cloudflare_token) &&
     effectiveCreds.cloudflare_account_id;
 
   return (
@@ -141,13 +146,15 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
         </div>
         <div
           className={`check-row ${
-            effectiveCreds.cloudflare_token && effectiveCreds.cloudflare_account_id
+            (effectiveCreds.cloudflare_oauth || effectiveCreds.cloudflare_token) &&
+            effectiveCreds.cloudflare_account_id
               ? "ok"
               : "missing"
           }`}
         >
           <span className="check-icon">
-            {effectiveCreds.cloudflare_token && effectiveCreds.cloudflare_account_id
+            {(effectiveCreds.cloudflare_oauth || effectiveCreds.cloudflare_token) &&
+            effectiveCreds.cloudflare_account_id
               ? "OK"
               : "X"}
           </span>
@@ -170,6 +177,10 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
         <summary>Debug credential state</summary>
         <p>Apple: {effectiveCreds.apple ? "present" : "missing"}</p>
         <p>Last.fm: {effectiveCreds.lastfm ? "present" : "missing"}</p>
+        <p>
+          Cloudflare OAuth:{" "}
+          {effectiveCreds.cloudflare_oauth ? "present" : "missing"}
+        </p>
         <p>
           Cloudflare token:{" "}
           {effectiveCreds.cloudflare_token

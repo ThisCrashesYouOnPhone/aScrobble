@@ -1,27 +1,45 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-shell";
-import type { CloudflareAccount } from "../types";
+import type { CloudflareAccount, CloudflareOauth } from "../types";
 import {
-  cloudflareValidateToken,
   cloudflareListAccounts,
+  cloudflareOauthLogin,
+  cloudflareSaveAccountId,
   cloudflareSaveCredentials,
   cloudflareTemplateUrl,
+  cloudflareValidateToken,
 } from "../lib/tauri";
 
 interface CloudflareStepProps {
-  existing: string | null;
+  existingToken: string | null;
+  existingOauth: CloudflareOauth | null;
+  existingAccountId: string | null;
   onComplete: () => void;
   onBack: () => void;
 }
 
-type Phase = "input" | "validating" | "valid" | "saving";
+type ManualPhase = "input" | "validating" | "valid" | "saving";
 
-export function CloudflareStep({ existing, onComplete, onBack }: CloudflareStepProps) {
-  const [token, setToken] = useState(existing ?? "");
-  const [phase, setPhase] = useState<Phase>(existing ? "valid" : "input");
-  const [accounts, setAccounts] = useState<CloudflareAccount[]>([]);
-  const [selectedAccount, setSelectedAccount] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
+export function CloudflareStep({
+  existingToken,
+  existingOauth,
+  existingAccountId,
+  onComplete,
+  onBack,
+}: CloudflareStepProps) {
+  const [oauthBusy, setOauthBusy] = useState(false);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+  const [oauthAccounts, setOauthAccounts] = useState<CloudflareAccount[]>([]);
+  const [oauthSelection, setOauthSelection] = useState(existingAccountId ?? "");
+
+  const [token, setToken] = useState(existingToken ?? "");
+  const [manualPhase, setManualPhase] = useState<ManualPhase>("input");
+  const [manualAccounts, setManualAccounts] = useState<CloudflareAccount[]>([]);
+  const [manualSelection, setManualSelection] = useState(existingAccountId ?? "");
+  const [manualError, setManualError] = useState<string | null>(null);
+
+  const manualBusy = manualPhase === "validating" || manualPhase === "saving";
+  const busy = oauthBusy || manualBusy;
 
   const openTokenPage = async () => {
     try {
@@ -29,166 +47,259 @@ export function CloudflareStep({ existing, onComplete, onBack }: CloudflareStepP
       await open(url);
     } catch (e) {
       console.error("failed to open token page:", e);
-      // Fallback: try the bare URL
       open("https://dash.cloudflare.com/profile/api-tokens").catch(console.error);
     }
   };
 
-  const handleValidate = async () => {
-    setError(null);
-    setPhase("validating");
+  const handleOauthLogin = async () => {
+    setOauthBusy(true);
+    setOauthError(null);
+    setOauthAccounts([]);
     try {
-      await cloudflareValidateToken(token.trim());
-      const accts = await cloudflareListAccounts(token.trim());
-      if (accts.length === 0) {
+      const oauth = await cloudflareOauthLogin();
+      const accounts = await cloudflareListAccounts(oauth.access_token);
+      if (accounts.length === 0) {
         throw new Error(
-          "Token is valid but has no accounts attached. Make sure the token includes 'All accounts' or your specific account."
+          "Cloudflare login succeeded, but no accounts were returned for this user."
         );
       }
-      setAccounts(accts);
-      setSelectedAccount(accts[0]?.id ?? "");
-      setPhase("valid");
+
+      if (accounts.length === 1) {
+        await cloudflareSaveAccountId(accounts[0].id);
+        onComplete();
+        return;
+      }
+
+      setOauthAccounts(accounts);
+      setOauthSelection(accounts[0].id);
     } catch (e) {
       const msg = typeof e === "string" ? e : (e as Error).message;
-      setError(msg ?? "Cloudflare token validation failed");
-      setPhase("input");
+      setOauthError(msg ?? "Cloudflare OAuth login failed");
+    } finally {
+      setOauthBusy(false);
     }
   };
 
-  const handleSave = async () => {
-    if (!selectedAccount) return;
-    setPhase("saving");
-    setError(null);
+  const handleOauthContinue = async () => {
+    if (!oauthSelection) return;
+    setOauthBusy(true);
+    setOauthError(null);
     try {
-      await cloudflareSaveCredentials(token.trim(), selectedAccount);
+      await cloudflareSaveAccountId(oauthSelection);
       onComplete();
     } catch (e) {
       const msg = typeof e === "string" ? e : (e as Error).message;
-      setError(msg ?? "Failed to save Cloudflare credentials");
-      setPhase("valid");
+      setOauthError(msg ?? "Failed to save Cloudflare account selection");
+    } finally {
+      setOauthBusy(false);
     }
   };
 
-  const busy = phase === "validating" || phase === "saving";
+  const handleManualValidate = async () => {
+    setManualError(null);
+    setManualPhase("validating");
+    try {
+      await cloudflareValidateToken(token.trim());
+      const accounts = await cloudflareListAccounts(token.trim());
+      if (accounts.length === 0) {
+        throw new Error(
+          "Token is valid but has no accounts attached. Make sure it includes your account scope."
+        );
+      }
+      setManualAccounts(accounts);
+      setManualSelection(accounts[0]?.id ?? "");
+      setManualPhase("valid");
+    } catch (e) {
+      const msg = typeof e === "string" ? e : (e as Error).message;
+      setManualError(msg ?? "Cloudflare token validation failed");
+      setManualPhase("input");
+    }
+  };
+
+  const handleManualSave = async () => {
+    if (!manualSelection) return;
+    setManualPhase("saving");
+    setManualError(null);
+    try {
+      await cloudflareSaveCredentials(token.trim(), manualSelection);
+      onComplete();
+    } catch (e) {
+      const msg = typeof e === "string" ? e : (e as Error).message;
+      setManualError(msg ?? "Failed to save Cloudflare credentials");
+      setManualPhase("valid");
+    }
+  };
 
   return (
     <div className="step-page card">
       <h2>Connect Cloudflare</h2>
       <p className="lead">
         amusic deploys the scrobbler to your own Cloudflare Workers account.
-        It runs on the free tier (we use ~2,000 of the 100,000 daily request
-        budget) and your PC can be off completely.
+        It runs on Cloudflare's free tier and keeps working even when your PC
+        is fully off.
       </p>
 
-      <ol className="numbered-steps">
-        <li>
-          <button className="link-btn" onClick={openTokenPage}>
-            Open the Cloudflare API tokens page →
+      <div className="actions">
+        <button
+          className="btn btn-primary btn-large"
+          onClick={handleOauthLogin}
+          disabled={busy}
+        >
+          {oauthBusy ? "Opening Cloudflare login..." : "Login with Cloudflare"}
+        </button>
+        {oauthAccounts.length > 1 && (
+          <button
+            className="btn btn-primary"
+            onClick={handleOauthContinue}
+            disabled={!oauthSelection || busy}
+          >
+            Save account and continue -&gt;
           </button>
-          <div className="muted">
-            We've pre-filled the "Edit Cloudflare Workers" template. Just
-            click "Continue to summary" then "Create Token".
+        )}
+      </div>
+
+      <p className="muted">
+        amusic uses Cloudflare's Wrangler OAuth flow to authenticate. You'll
+        see "Wrangler" listed in your Cloudflare authorized applications - this
+        is because Cloudflare doesn't offer OAuth app registration for
+        third-party developers.
+      </p>
+
+      {existingOauth && (
+        <div className="status status-ok">
+          <span className="status-icon">OK</span>
+          <div>
+            Existing OAuth session found in keychain
+            {existingAccountId ? ` (account ${existingAccountId.slice(0, 8)}...)` : ""}
           </div>
-        </li>
-        <li>Copy the token shown after creation.</li>
-        <li>Paste it below.</li>
-      </ol>
-
-      <div className="form">
-        <div className="form-row">
-          <label>
-            <span>API token</span>
-            <textarea
-              spellCheck={false}
-              autoComplete="off"
-              value={token}
-              onChange={(e) => {
-                setToken(e.target.value);
-                if (phase === "valid") setPhase("input");
-              }}
-              placeholder="Paste your Cloudflare API token here"
-              disabled={busy}
-              rows={3}
-            />
-          </label>
         </div>
+      )}
 
-        {phase === "valid" && accounts.length > 0 && (
+      {oauthAccounts.length > 1 && (
+        <div className="form">
           <div className="form-row">
             <label>
-              <span>Account</span>
+              <span>Pick the Cloudflare account for this deployment</span>
               <select
-                value={selectedAccount}
-                onChange={(e) => setSelectedAccount(e.target.value)}
+                value={oauthSelection}
+                onChange={(e) => setOauthSelection(e.target.value)}
                 disabled={busy}
               >
-                {accounts.map((a) => (
+                {oauthAccounts.map((a) => (
                   <option key={a.id} value={a.id}>
-                    {a.name} ({a.id.slice(0, 8)}…)
+                    {a.name} ({a.id.slice(0, 8)}...)
                   </option>
                 ))}
               </select>
             </label>
-            {accounts.length > 1 && (
-              <p className="hint">
-                Pick the account that should host the scrobbler worker.
-              </p>
-            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      {error && (
+      {oauthError && (
         <div className="status status-error">
           <span className="status-icon">!</span>
-          <div>{error}</div>
+          <div>{oauthError}</div>
         </div>
       )}
 
       <details className="how-it-works">
-        <summary>What does this token do?</summary>
-        <p>
-          The "Edit Cloudflare Workers" template grants permission to: create
-          Worker scripts, manage Worker secrets, manage KV namespaces, and
-          configure cron triggers — all scoped to your account. amusic uses
-          all four. The token is stored in your operating system keychain
-          (macOS Keychain, Windows Credential Manager, or Linux Secret
-          Service) — never written to disk in plaintext.
-        </p>
+        <summary>Advanced: paste API token instead</summary>
+        <ol className="numbered-steps">
+          <li>
+            <button className="link-btn" onClick={openTokenPage} disabled={busy}>
+              Open the Cloudflare API tokens page -&gt;
+            </button>
+            <div className="muted">
+              Use the pre-filled "Edit Cloudflare Workers" template, then copy
+              the generated token.
+            </div>
+          </li>
+          <li>Paste the token below and validate it.</li>
+        </ol>
+
+        <div className="form">
+          <div className="form-row">
+            <label>
+              <span>API token</span>
+              <textarea
+                spellCheck={false}
+                autoComplete="off"
+                value={token}
+                onChange={(e) => {
+                  setToken(e.target.value);
+                  if (manualPhase === "valid") setManualPhase("input");
+                }}
+                placeholder="Paste your Cloudflare API token here"
+                disabled={busy}
+                rows={3}
+              />
+            </label>
+          </div>
+
+          {manualPhase === "valid" && manualAccounts.length > 0 && (
+            <div className="form-row">
+              <label>
+                <span>Account</span>
+                <select
+                  value={manualSelection}
+                  onChange={(e) => setManualSelection(e.target.value)}
+                  disabled={busy}
+                >
+                  {manualAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} ({a.id.slice(0, 8)}...)
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+        </div>
+
+        {manualError && (
+          <div className="status status-error">
+            <span className="status-icon">!</span>
+            <div>{manualError}</div>
+          </div>
+        )}
+
+        <div className="actions">
+          {manualPhase === "input" && (
+            <button
+              className="btn btn-primary"
+              onClick={handleManualValidate}
+              disabled={!token.trim() || busy}
+            >
+              Validate token
+            </button>
+          )}
+          {manualPhase === "validating" && (
+            <button className="btn btn-primary" disabled>
+              Validating...
+            </button>
+          )}
+          {manualPhase === "valid" && (
+            <button
+              className="btn btn-primary"
+              onClick={handleManualSave}
+              disabled={!manualSelection || busy}
+            >
+              Save and continue -&gt;
+            </button>
+          )}
+          {manualPhase === "saving" && (
+            <button className="btn btn-primary" disabled>
+              Saving...
+            </button>
+          )}
+        </div>
       </details>
 
       <div className="actions">
         <button className="btn" onClick={onBack} disabled={busy}>
-          ← Back
+          &lt;- Back
         </button>
-        {phase === "input" && (
-          <button
-            className="btn btn-primary"
-            onClick={handleValidate}
-            disabled={!token.trim() || busy}
-          >
-            Validate token
-          </button>
-        )}
-        {phase === "validating" && (
-          <button className="btn btn-primary" disabled>
-            Validating…
-          </button>
-        )}
-        {phase === "valid" && (
-          <button
-            className="btn btn-primary"
-            onClick={handleSave}
-            disabled={!selectedAccount}
-          >
-            Save and continue →
-          </button>
-        )}
-        {phase === "saving" && (
-          <button className="btn btn-primary" disabled>
-            Saving…
-          </button>
-        )}
       </div>
     </div>
   );
