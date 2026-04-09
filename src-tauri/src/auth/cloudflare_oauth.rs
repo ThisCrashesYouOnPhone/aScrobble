@@ -17,7 +17,6 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tauri::AppHandle;
 use tauri_plugin_oauth::{start_with_config, OauthConfig};
-use tauri_plugin_shell::{open::Program, ShellExt};
 use tokio::sync::{oneshot, Mutex};
 use url::Url;
 
@@ -62,11 +61,12 @@ fn slot() -> &'static Mutex<Option<oneshot::Sender<CallbackResult>>> {
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
-    #[allow(dead_code)]
-    token_type: String,
-    expires_in: i64,
-    refresh_token: String,
-    scope: String,
+    #[serde(default)]
+    expires_in: Option<i64>,
+    #[serde(default)]
+    refresh_token: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
 }
 
 pub fn generate_pkce() -> (String, String) {
@@ -88,7 +88,7 @@ pub fn generate_state() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(state_bytes)
 }
 
-pub async fn start_oauth_flow(app: &AppHandle) -> Result<CloudflareOauth> {
+pub async fn start_oauth_flow(_app: &AppHandle) -> Result<CloudflareOauth> {
     let _ = cancel_oauth_flow().await;
 
     let (code_verifier, code_challenge) = generate_pkce();
@@ -176,8 +176,7 @@ pub async fn start_oauth_flow(app: &AppHandle) -> Result<CloudflareOauth> {
         .append_pair("code_challenge", &code_challenge)
         .append_pair("code_challenge_method", "S256");
 
-    app.shell()
-        .open(auth_url.to_string(), None::<Program>)
+    open::that(auth_url.to_string())
         .map_err(|e| anyhow!("Failed to open browser: {}", e))?;
 
     let (code, callback_state) = tokio::time::timeout(Duration::from_secs(AUTH_TIMEOUT_SECS), rx)
@@ -225,12 +224,12 @@ async fn exchange_authorization_code(code: &str, code_verifier: &str) -> Result<
         .await
         .map_err(|e| anyhow!("Failed to parse Cloudflare OAuth response: {}", e))?;
 
-    let expires_at = chrono::Utc::now().timestamp() + parsed.expires_in;
+    let expires_at = chrono::Utc::now().timestamp() + parsed.expires_in.unwrap_or(14400);
     Ok(CloudflareOauth {
         access_token: parsed.access_token,
-        refresh_token: parsed.refresh_token,
+        refresh_token: parsed.refresh_token.unwrap_or_default(),
         expires_at,
-        scope: parsed.scope,
+        scope: parsed.scope.unwrap_or_default(),
     })
 }
 
@@ -262,12 +261,12 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<CloudflareOauth
         .await
         .map_err(|e| anyhow!("Failed to parse Cloudflare refresh response: {}", e))?;
 
-    let expires_at = chrono::Utc::now().timestamp() + parsed.expires_in;
+    let expires_at = chrono::Utc::now().timestamp() + parsed.expires_in.unwrap_or(14400);
     Ok(CloudflareOauth {
         access_token: parsed.access_token,
-        refresh_token: parsed.refresh_token,
+        refresh_token: parsed.refresh_token.unwrap_or_else(|| refresh_token.to_string()),
         expires_at,
-        scope: parsed.scope,
+        scope: parsed.scope.unwrap_or_default(),
     })
 }
 
