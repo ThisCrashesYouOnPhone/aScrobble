@@ -232,6 +232,29 @@ pub async fn load_user_settings() -> Result<UserSettings, String> {
 }
 
 #[tauri::command]
+pub async fn rotate_apple_tokens(
+    app: AppHandle,
+    account_id: String,
+) -> Result<(), String> {
+    let apple = auth::apple::start_auth_flow(&app).await.map_err(err)?;
+    storage::save_apple_tokens(&apple).map_err(err)?;
+    crate::deploy::rotate_apple_tokens(&account_id, &apple)
+        .await
+        .map_err(err)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_worker_url() -> Result<Option<String>, String> {
+    storage::load_worker_url().map_err(err)
+}
+
+#[tauri::command]
+pub async fn get_status_auth_key() -> Result<Option<String>, String> {
+    storage::load_status_auth_key().map_err(err)
+}
+
+#[tauri::command]
 pub async fn deploy_status(app: AppHandle, account_id: String) -> Result<DeployStatus, String> {
     crate::deploy::fetch_status(&app, &account_id)
         .await

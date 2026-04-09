@@ -46,4 +46,28 @@ export interface UserSettings {
   poll_interval_minutes: number; // 1, 2, 5, 10, 15, or 30
 }
 
-export type WizardStep = "welcome" | "apple" | "lastfm" | "cloudflare" | "deploy" | "done";
+export interface RecentScrobble {
+  artist: string;
+  track: string;
+  album: string;
+  timestamp_iso: string;
+  kind: "new" | "repeat";
+}
+
+export interface LedgerStats {
+  total_scrobbled: number;
+  total_runs: number;
+  total_errors: number;
+  last_success_iso: string | null;
+  last_error_iso: string | null;
+  last_error_message: string | null;
+}
+
+export interface WorkerLedger {
+  version: number;
+  last_run_iso: string | null;
+  recent_scrobbles: RecentScrobble[];
+  stats: LedgerStats;
+}
+
+export type WizardStep = "welcome" | "apple" | "lastfm" | "cloudflare" | "deploy" | "done" | "dashboard";

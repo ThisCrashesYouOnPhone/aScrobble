@@ -27,6 +27,7 @@ const KEY_CF_ACCOUNT: &str = "cloudflare-account-id";
 // STATUS_AUTH_KEY worker secret on Cloudflare.
 const KEY_STATUS_AUTH: &str = "status-auth-key";
 const KEY_USER_SETTINGS: &str = "user-settings";
+const KEY_WORKER_URL: &str = "worker-url";
 
 fn entry(user: &str) -> Result<Entry> {
     Entry::new(SERVICE, user).map_err(|e| anyhow!("Failed to access keyring: {}", e))
@@ -157,6 +158,16 @@ pub fn load_user_settings() -> Result<UserSettings> {
     }
 }
 
+// ---------- Worker URL ----------
+
+pub fn save_worker_url(url: &str) -> Result<()> {
+    write(&entry(KEY_WORKER_URL)?, url)
+}
+
+pub fn load_worker_url() -> Result<Option<String>> {
+    read_optional(&entry(KEY_WORKER_URL)?)
+}
+
 // ---------- Clear all ----------
 
 pub fn clear_all() -> Result<()> {
@@ -167,5 +178,6 @@ pub fn clear_all() -> Result<()> {
     delete_if_exists(&entry(KEY_CF_ACCOUNT)?)?;
     delete_if_exists(&entry(KEY_STATUS_AUTH)?)?;
     delete_if_exists(&entry(KEY_USER_SETTINGS)?)?;
+    delete_if_exists(&entry(KEY_WORKER_URL)?)?;
     Ok(())
 }

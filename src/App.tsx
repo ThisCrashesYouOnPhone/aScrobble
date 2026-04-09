@@ -8,6 +8,7 @@ import { LastfmStep } from "./components/LastfmStep";
 import { CloudflareStep } from "./components/CloudflareStep";
 import { DeployStep } from "./components/DeployStep";
 import { DoneStep } from "./components/DoneStep";
+import { Dashboard } from "./components/Dashboard";
 
 export default function App() {
   const [step, setStep] = useState<WizardStep>("welcome");
@@ -29,7 +30,7 @@ export default function App() {
           c.lastfm &&
           c.apple
         ) {
-          setStep("deploy");
+          setStep("dashboard");
         }
       })
       .catch((e) => {
@@ -69,7 +70,7 @@ export default function App() {
         <div className="tagline">Apple Music → Last.fm, on autopilot</div>
       </header>
 
-      {step !== "welcome" && step !== "done" && <Stepper current={step} />}
+      {step !== "welcome" && step !== "done" && step !== "dashboard" && <Stepper current={step} />}
 
       <main className="app-main">
         {syncError && (
@@ -122,12 +123,15 @@ export default function App() {
         {step === "deploy" && creds && (
           <DeployStep
             creds={creds}
-            onComplete={() => setStep("done")}
+            onComplete={() => setStep("dashboard")}
             onBack={() => setStep("cloudflare")}
           />
         )}
         {step === "done" && creds && (
           <DoneStep creds={creds} onReset={() => setStep("welcome")} />
+        )}
+        {step === "dashboard" && creds && (
+          <Dashboard creds={creds} onReset={() => setStep("welcome")} />
         )}
       </main>
 

@@ -93,3 +93,12 @@ export const deployWorker = (
 
 export const deployStatus = (accountId: string): Promise<DeployStatus> =>
   invoke("deploy_status", { accountId });
+
+export const rotateAppleTokens = (accountId: string): Promise<void> =>
+  invoke("rotate_apple_tokens", { accountId });
+
+export const getWorkerUrl = (): Promise<string | null> =>
+  invoke("get_worker_url");
+
+export const getStatusAuthKey = (): Promise<string | null> =>
+  invoke("get_status_auth_key");

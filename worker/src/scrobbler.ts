@@ -23,6 +23,7 @@ import {
   loadLedger,
   saveLedger,
   parseLastRunTime,
+  addRecentScrobbles,
   type LedgerData,
 } from "./ledger";
 import { KV_KEY_APPLE_DEV_TOKEN, KV_KEY_APPLE_USER_TOKEN } from "./kv_keys";
@@ -189,7 +190,10 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
     await notifyMilestone(env.NOTIFY_WEBHOOK_URL, milestone);
   }
 
-  // 8. Update ledger and persist
+  // 8. Record recent scrobbles for the dashboard
+  addRecentScrobbles(ledger, timestamped);
+
+  // 9. Update ledger and persist
   ledger.previous_recent = current;
   ledger.stats.total_scrobbled = newTotal;
   ledger.stats.last_success_iso = runTime.toISOString();

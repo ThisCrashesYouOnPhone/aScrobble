@@ -106,6 +106,11 @@ pub async fn deploy_full(
     let cron_expression = format!("*/{} * * * *", poll_interval_minutes);
     set_cron_schedule(&client, &token, account_id, &cron_expression).await?;
 
+    // Try to resolve and store the worker's workers.dev URL for the dashboard
+    if let Ok(Some(url)) = resolve_worker_url(&client, &token, account_id).await {
+        let _ = storage::save_worker_url(&url);
+    }
+
     Ok(WORKER_NAME.to_string())
 }
 
@@ -469,6 +474,64 @@ async fn set_cron_schedule(
         .await
         .map_err(|e| anyhow!("Failed to parse cron schedule response: {}", e))?;
     check_success(envelope, "set cron schedule")?;
+    Ok(())
+}
+
+// ---------- Worker URL resolution ----------
+
+#[derive(Debug, Deserialize)]
+struct SubdomainResult {
+    subdomain: String,
+}
+
+/// Try to resolve the worker's public workers.dev URL.
+/// Returns None if the user hasn't set up a workers.dev subdomain.
+async fn resolve_worker_url(
+    client: &reqwest::Client,
+    token: &str,
+    account_id: &str,
+) -> Result<Option<String>> {
+    let url = format!("{}/accounts/{}/workers/subdomain", CF_API, account_id);
+    let resp = client
+        .get(&url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| anyhow!("Failed to query workers.dev subdomain: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+
+    let envelope: CfEnvelope<SubdomainResult> = resp
+        .json()
+        .await
+        .map_err(|e| anyhow!("Failed to parse subdomain response: {}", e))?;
+
+    match envelope.result {
+        Some(r) if !r.subdomain.is_empty() => {
+            Ok(Some(format!("https://{}.{}.workers.dev", WORKER_NAME, r.subdomain)))
+        }
+        _ => Ok(None),
+    }
+}
+
+// ---------- Apple token rotation ----------
+
+/// Rotate Apple tokens in KV without a full redeploy.
+pub async fn rotate_apple_tokens(
+    account_id: &str,
+    apple: &crate::commands::AppleTokens,
+) -> Result<()> {
+    let token = resolve_cloudflare_api_token().await?;
+    let client = build_client();
+
+    // Find the KV namespace ID
+    let kv_id = ensure_kv_namespace(&client, &token, account_id).await?;
+
+    // Write new Apple tokens to KV
+    seed_apple_tokens(&client, &token, account_id, &kv_id, apple).await?;
+
     Ok(())
 }
 

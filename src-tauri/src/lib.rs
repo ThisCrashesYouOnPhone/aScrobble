@@ -65,6 +65,9 @@ pub fn run() {
             // Deployment
             commands::deploy_worker,
             commands::deploy_status,
+            commands::rotate_apple_tokens,
+            commands::get_worker_url,
+            commands::get_status_auth_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running amusic");

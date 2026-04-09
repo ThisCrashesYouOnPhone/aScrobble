@@ -12,10 +12,19 @@ import type { AppleTrack } from "./env";
 
 const LEDGER_KEY = "ledger:v1";
 
+export interface RecentScrobble {
+  artist: string;
+  track: string;
+  album: string;
+  timestamp_iso: string;
+  kind: "new" | "repeat";
+}
+
 export interface LedgerData {
   version: 1;
   last_run_iso: string | null;
   previous_recent: AppleTrack[];
+  recent_scrobbles: RecentScrobble[];
   stats: {
     total_scrobbled: number;
     total_runs: number;
@@ -26,10 +35,13 @@ export interface LedgerData {
   };
 }
 
+const MAX_RECENT_SCROBBLES = 100;
+
 const DEFAULT_LEDGER: LedgerData = {
   version: 1,
   last_run_iso: null,
   previous_recent: [],
+  recent_scrobbles: [],
   stats: {
     total_scrobbled: 0,
     total_runs: 0,
@@ -57,6 +69,23 @@ export async function saveLedger(
   ledger: LedgerData
 ): Promise<void> {
   await kv.put(LEDGER_KEY, JSON.stringify(ledger));
+}
+
+export function addRecentScrobbles(
+  ledger: LedgerData,
+  plays: Array<{ track: { artist: string; name: string; album: string }; kind: "new" | "repeat"; timestamp?: Date }>
+): void {
+  const newEntries: RecentScrobble[] = plays.map((p) => ({
+    artist: p.track.artist,
+    track: p.track.name,
+    album: p.track.album,
+    timestamp_iso: p.timestamp?.toISOString() ?? new Date().toISOString(),
+    kind: p.kind,
+  }));
+  ledger.recent_scrobbles = [...newEntries, ...ledger.recent_scrobbles].slice(
+    0,
+    MAX_RECENT_SCROBBLES
+  );
 }
 
 export function parseLastRunTime(ledger: LedgerData): Date | null {

@@ -462,10 +462,12 @@ async function postMessage(webhookUrl, message) {
 
 // src/ledger.ts
 var LEDGER_KEY = "ledger:v1";
+var MAX_RECENT_SCROBBLES = 100;
 var DEFAULT_LEDGER = {
   version: 1,
   last_run_iso: null,
   previous_recent: [],
+  recent_scrobbles: [],
   stats: {
     total_scrobbled: 0,
     total_runs: 0,
@@ -488,6 +490,19 @@ async function loadLedger(kv) {
 }
 async function saveLedger(kv, ledger) {
   await kv.put(LEDGER_KEY, JSON.stringify(ledger));
+}
+function addRecentScrobbles(ledger, plays) {
+  const newEntries = plays.map((p) => ({
+    artist: p.track.artist,
+    track: p.track.name,
+    album: p.track.album,
+    timestamp_iso: p.timestamp?.toISOString() ?? (/* @__PURE__ */ new Date()).toISOString(),
+    kind: p.kind
+  }));
+  ledger.recent_scrobbles = [...newEntries, ...ledger.recent_scrobbles].slice(
+    0,
+    MAX_RECENT_SCROBBLES
+  );
 }
 function parseLastRunTime(ledger) {
   if (!ledger.last_run_iso) return null;
@@ -626,6 +641,7 @@ async function pollAndScrobble(env) {
     const milestone = Math.floor(newTotal / 1e3) * 1e3;
     await notifyMilestone(env.NOTIFY_WEBHOOK_URL, milestone);
   }
+  addRecentScrobbles(ledger, timestamped);
   ledger.previous_recent = current;
   ledger.stats.total_scrobbled = newTotal;
   ledger.stats.last_success_iso = runTime.toISOString();
