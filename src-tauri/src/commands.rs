@@ -51,6 +51,19 @@ pub struct StoredCredentials {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSettings {
+    pub poll_interval_minutes: u32, // 1, 2, 5, 10, 15, or 30
+}
+
+impl Default for UserSettings {
+    fn default() -> Self {
+        Self {
+            poll_interval_minutes: 5,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployStatus {
     pub deployed: bool,
     pub worker_name: Option<String>,
@@ -198,10 +211,24 @@ pub async fn storage_clear_all() -> Result<(), String> {
 // ---------- Deployment ----------
 
 #[tauri::command]
-pub async fn deploy_worker(app: AppHandle, account_id: String) -> Result<String, String> {
-    crate::deploy::deploy_full(&app, &account_id)
+pub async fn deploy_worker(
+    app: AppHandle,
+    account_id: String,
+    poll_interval_minutes: u32,
+) -> Result<String, String> {
+    crate::deploy::deploy_full(&app, &account_id, poll_interval_minutes)
         .await
         .map_err(err)
+}
+
+#[tauri::command]
+pub async fn save_user_settings(settings: UserSettings) -> Result<(), String> {
+    storage::save_user_settings(&settings).map_err(err)
+}
+
+#[tauri::command]
+pub async fn load_user_settings() -> Result<UserSettings, String> {
+    storage::load_user_settings().map_err(err)
 }
 
 #[tauri::command]

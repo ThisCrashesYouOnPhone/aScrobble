@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { StoredCredentials } from "../types";
-import { deployWorker, storageGetAll } from "../lib/tauri";
+import { deployWorker, storageGetAll, loadUserSettings, saveUserSettings } from "../lib/tauri";
+
+const INTERVAL_OPTIONS = [
+  { value: 1, label: "1 minute (most responsive, more API calls)" },
+  { value: 2, label: "2 minutes" },
+  { value: 5, label: "5 minutes (recommended)" },
+  { value: 10, label: "10 minutes" },
+  { value: 15, label: "15 minutes" },
+  { value: 30, label: "30 minutes" },
+] as const;
 
 interface DeployStepProps {
   creds: StoredCredentials;
@@ -60,6 +69,7 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
   const [error, setError] = useState<string | null>(null);
   const [workerName, setWorkerName] = useState<string | null>(null);
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
+  const [pollInterval, setPollInterval] = useState(5);
 
   const refreshFromStorage = async () => {
     try {
@@ -78,6 +88,9 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
 
   useEffect(() => {
     void refreshFromStorage();
+    loadUserSettings()
+      .then((s) => setPollInterval(s.poll_interval_minutes))
+      .catch(() => {}); // use default 5 if never saved
   }, []);
 
   // Listen for live progress events from the Rust deploy module
@@ -104,7 +117,8 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
     setHistory([]);
     setProgress(null);
     try {
-      const result = await deployWorker(effectiveCreds.cloudflare_account_id);
+      await saveUserSettings({ poll_interval_minutes: pollInterval });
+      const result = await deployWorker(effectiveCreds.cloudflare_account_id, pollInterval);
       setWorkerName(result);
       setPhase("success");
       // Brief pause so the user sees the success state
@@ -128,9 +142,27 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
       <p className="lead">
         Everything is ready. Pressing Deploy will create a KV namespace,
         upload the scrobbler worker, set up secrets, seed your Apple tokens,
-        and configure a 5-minute cron trigger - all on your own Cloudflare
-        account.
+        and configure a cron trigger - all on your own Cloudflare account.
       </p>
+
+      <div className="form">
+        <div className="form-row">
+          <label>
+            <span>Polling interval</span>
+            <select
+              value={pollInterval}
+              onChange={(e) => setPollInterval(Number(e.target.value))}
+              disabled={phase !== "ready"}
+            >
+              {INTERVAL_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </div>
 
       <div className="checklist">
         <div className={`check-row ${effectiveCreds.apple ? "ok" : "missing"}`}>

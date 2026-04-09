@@ -58,7 +58,11 @@ pub fn run() {
             commands::storage_get_all,
             commands::storage_clear_all,
 
-            // Deployment (stubbed for this phase, implemented next)
+            // Settings
+            commands::save_user_settings,
+            commands::load_user_settings,
+
+            // Deployment
             commands::deploy_worker,
             commands::deploy_status,
         ])

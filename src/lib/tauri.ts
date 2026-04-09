@@ -16,6 +16,7 @@ import type {
   CloudflareOauth,
   StoredCredentials,
   DeployStatus,
+  UserSettings,
 } from "../types";
 
 // ---------- Apple Music ----------
@@ -78,8 +79,17 @@ export const storageClearAll = (): Promise<void> =>
 
 // ---------- Deployment ----------
 
-export const deployWorker = (accountId: string): Promise<string> =>
-  invoke("deploy_worker", { accountId });
+export const saveUserSettings = (settings: UserSettings): Promise<void> =>
+  invoke("save_user_settings", { settings });
+
+export const loadUserSettings = (): Promise<UserSettings> =>
+  invoke("load_user_settings");
+
+export const deployWorker = (
+  accountId: string,
+  pollIntervalMinutes: number
+): Promise<string> =>
+  invoke("deploy_worker", { accountId, pollIntervalMinutes });
 
 export const deployStatus = (accountId: string): Promise<DeployStatus> =>
   invoke("deploy_status", { accountId });

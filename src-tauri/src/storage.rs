@@ -12,7 +12,7 @@
 use anyhow::{anyhow, Result};
 use keyring::Entry;
 
-use crate::commands::{AppleTokens, CloudflareOauth, LastfmSession};
+use crate::commands::{AppleTokens, CloudflareOauth, LastfmSession, UserSettings};
 
 const SERVICE: &str = "dev.amusic.app";
 
@@ -26,6 +26,7 @@ const KEY_CF_ACCOUNT: &str = "cloudflare-account-id";
 // endpoints. Randomly generated per deploy, stored both here and as the
 // STATUS_AUTH_KEY worker secret on Cloudflare.
 const KEY_STATUS_AUTH: &str = "status-auth-key";
+const KEY_USER_SETTINGS: &str = "user-settings";
 
 fn entry(user: &str) -> Result<Entry> {
     Entry::new(SERVICE, user).map_err(|e| anyhow!("Failed to access keyring: {}", e))
@@ -142,6 +143,20 @@ pub fn load_status_auth_key() -> Result<Option<String>> {
     read_optional(&entry(KEY_STATUS_AUTH)?)
 }
 
+// ---------- User settings ----------
+
+pub fn save_user_settings(settings: &UserSettings) -> Result<()> {
+    let json = serde_json::to_string(settings)?;
+    write(&entry(KEY_USER_SETTINGS)?, &json)
+}
+
+pub fn load_user_settings() -> Result<UserSettings> {
+    match read_optional(&entry(KEY_USER_SETTINGS)?)? {
+        None => Ok(UserSettings::default()),
+        Some(s) => Ok(serde_json::from_str(&s)?),
+    }
+}
+
 // ---------- Clear all ----------
 
 pub fn clear_all() -> Result<()> {
@@ -151,5 +166,6 @@ pub fn clear_all() -> Result<()> {
     delete_if_exists(&entry(KEY_CF_OAUTH)?)?;
     delete_if_exists(&entry(KEY_CF_ACCOUNT)?)?;
     delete_if_exists(&entry(KEY_STATUS_AUTH)?)?;
+    delete_if_exists(&entry(KEY_USER_SETTINGS)?)?;
     Ok(())
 }

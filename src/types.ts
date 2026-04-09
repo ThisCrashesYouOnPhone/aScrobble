@@ -42,4 +42,8 @@ export interface DeployStatus {
   total_runs: number;
 }
 
+export interface UserSettings {
+  poll_interval_minutes: number; // 1, 2, 5, 10, 15, or 30
+}
+
 export type WizardStep = "welcome" | "apple" | "lastfm" | "cloudflare" | "deploy" | "done";

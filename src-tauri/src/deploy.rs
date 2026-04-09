@@ -31,7 +31,7 @@ const WORKER_NAME: &str = "amusic-scrobbler";
 const KV_NAMESPACE_TITLE: &str = "amusic-state";
 const KV_BINDING_NAME: &str = "AMUSIC_STATE";
 const COMPAT_DATE: &str = "2025-04-01";
-const CRON_EXPRESSION: &str = "*/5 * * * *";
+const VALID_INTERVALS: &[u32] = &[1, 2, 5, 10, 15, 30];
 const TOTAL_STEPS: u32 = 7;
 
 // KV key names — MUST match worker/src/kv_keys.ts
@@ -63,7 +63,18 @@ fn emit(app: &AppHandle, step: u32, label: &str) {
 // ---------- public entry ----------
 
 /// Run the full deploy sequence. Returns the worker name on success.
-pub async fn deploy_full(app: &AppHandle, account_id: &str) -> Result<String> {
+pub async fn deploy_full(
+    app: &AppHandle,
+    account_id: &str,
+    poll_interval_minutes: u32,
+) -> Result<String> {
+    if !VALID_INTERVALS.contains(&poll_interval_minutes) {
+        return Err(anyhow!(
+            "Invalid polling interval: {} minutes. Must be one of: {:?}",
+            poll_interval_minutes,
+            VALID_INTERVALS
+        ));
+    }
     emit(app, 1, "Reading worker script");
     let script = read_worker_script(app)?;
 
@@ -90,8 +101,10 @@ pub async fn deploy_full(app: &AppHandle, account_id: &str) -> Result<String> {
     emit(app, 6, "Seeding Apple tokens to KV");
     seed_apple_tokens(&client, &token, account_id, &kv_id, &apple).await?;
 
-    emit(app, 7, "Configuring 5-minute cron trigger");
-    set_cron_schedule(&client, &token, account_id).await?;
+    let cron_label = format!("Configuring {}-minute cron trigger", poll_interval_minutes);
+    emit(app, 7, &cron_label);
+    let cron_expression = format!("*/{} * * * *", poll_interval_minutes);
+    set_cron_schedule(&client, &token, account_id, &cron_expression).await?;
 
     Ok(WORKER_NAME.to_string())
 }
@@ -436,12 +449,13 @@ async fn set_cron_schedule(
     client: &reqwest::Client,
     token: &str,
     account_id: &str,
+    cron_expression: &str,
 ) -> Result<()> {
     let url = format!(
         "{}/accounts/{}/workers/scripts/{}/schedules",
         CF_API, account_id, WORKER_NAME
     );
-    let body = json!([{ "cron": CRON_EXPRESSION }]);
+    let body = json!([{ "cron": cron_expression }]);
     let resp = client
         .put(&url)
         .bearer_auth(token)
