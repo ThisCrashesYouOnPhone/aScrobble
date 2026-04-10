@@ -13,6 +13,8 @@ export function Settings({ onBack }: SettingsProps) {
   const [minimizeToTray, setMinimizeToTray] = useState(true);
   const [logsLoading, setLogsLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [apiTestLoading, setApiTestLoading] = useState(false);
+  const [apiTestResult, setApiTestResult] = useState<string | null>(null);
 
   // Load settings from storage
   useEffect(() => {
@@ -96,6 +98,49 @@ type SettingsState = {
     } catch {
       // Fallback - show path
       alert("Data folder: %APPDATA%/aScrobble");
+    }
+  };
+
+  const testAppleApi = async () => {
+    setApiTestLoading(true);
+    setApiTestResult(null);
+    try {
+      const result = await invoke<{
+        tokens_present: boolean;
+        developer_token_preview?: string;
+        music_user_token_preview?: string;
+        api_test?: { status: number; ok: boolean; body_preview?: string; error?: string };
+        curl_command_recent?: string;
+      }>("debug_export_apple_tokens");
+      
+      if (!result.tokens_present) {
+        setApiTestResult("No Apple tokens found. Connect Apple Music first.");
+        return;
+      }
+
+      const test = result.api_test;
+      let output = `Token Test Results:\n\n`;
+      output += `Developer Token: ${result.developer_token_preview}\n`;
+      output += `User Token: ${result.music_user_token_preview}\n\n`;
+      
+      if (test?.error) {
+        output += `API Test: FAILED - ${test.error}\n`;
+      } else {
+        output += `API Test: HTTP ${test?.status} (${test?.ok ? 'OK' : 'FAILED'})\n`;
+        if (test?.body_preview) {
+          output += `Response: ${test.body_preview.slice(0, 100)}...\n`;
+        }
+      }
+      
+      if (result.curl_command_recent) {
+        output += `\n\nCurl command for testing:\n${result.curl_command_recent}`;
+      }
+      
+      setApiTestResult(output);
+    } catch (e) {
+      setApiTestResult(`Error: ${e}`);
+    } finally {
+      setApiTestLoading(false);
     }
   };
 
@@ -253,7 +298,29 @@ type SettingsState = {
                 >
                   📁 Open Data Folder
                 </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={testAppleApi}
+                  disabled={apiTestLoading}
+                >
+                  {apiTestLoading ? "⏳ Testing..." : "🧪 Test Apple API"}
+                </button>
               </div>
+              {apiTestResult && (
+                <div style={{ 
+                  marginTop: '12px', 
+                  padding: '12px', 
+                  background: 'rgba(255,255,255,0.05)', 
+                  borderRadius: '8px',
+                  fontFamily: 'monospace',
+                  fontSize: '11px',
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: '200px',
+                  overflow: 'auto'
+                }}>
+                  {apiTestResult}
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -131,14 +131,19 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
   //
   // Cost: ≤ 1 extra call/poll, and only when the top track hasn't changed.
   // ISRC is required — tracks without it (rare) silently skip the probe.
+  console.log(`Position-0 probe check: plays=${plays.length}, current.length=${current.length}, previous.length=${ledger.previous_recent.length}`);
   if (plays.length === 0 && current.length > 0 && ledger.previous_recent.length > 0) {
     const topTrack = current[0];
     const prevTopTrack = ledger.previous_recent[0];
+    console.log(`Position-0 probe: topTrack.id=${topTrack.id}, prevTopTrack.id=${prevTopTrack.id}, isrc=${topTrack.isrc}`);
 
     if (topTrack.id === prevTopTrack.id && topTrack.isrc) {
+      console.log(`Position-0 probe: Fetching play count for ISRC ${topTrack.isrc}`);
       const newCount = await fetchTrackPlayCount(appleDevToken, appleUserToken, topTrack.isrc);
+      console.log(`Position-0 probe: newCount=${newCount}, stored top_track_id=${ledger.top_track_id}, stored play_count=${ledger.top_track_play_count}`);
       if (newCount !== null) {
         const prevCount = ledger.top_track_id === topTrack.id ? ledger.top_track_play_count : undefined;
+        console.log(`Position-0 probe: prevCount=${prevCount}`);
         if (prevCount !== undefined && newCount > prevCount) {
           const delta = newCount - prevCount;
           console.log(
@@ -147,15 +152,24 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
           for (let i = 0; i < delta; i++) {
             plays.push({ track: topTrack, kind: "repeat" });
           }
+        } else if (prevCount === undefined) {
+          console.log(`Position-0 probe: First observation for this track, count=${newCount}, no repeats yet`);
+        } else if (newCount <= prevCount) {
+          console.log(`Position-0 probe: Count did not increase (${prevCount} -> ${newCount})`);
         }
         ledger.top_track_id = topTrack.id;
         ledger.top_track_play_count = newCount;
+      } else {
+        console.log(`Position-0 probe: fetchTrackPlayCount returned null - ISRC may not be in user's library`);
       }
     } else {
+      console.log(`Position-0 probe: SKIPPED - sameTrack=${topTrack.id === prevTopTrack.id}, hasISRC=${!!topTrack.isrc}`);
       // Top track changed — reset probe state for the new track
       ledger.top_track_id = current[0]?.id;
       ledger.top_track_play_count = undefined;
     }
+  } else {
+    console.log(`Position-0 probe: SKIPPED - condition not met`);
   }
 
   if (plays.length === 0) {

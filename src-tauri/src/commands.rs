@@ -375,3 +375,49 @@ pub async fn deploy_status(app: AppHandle, account_id: String) -> Result<DeployS
         .await
         .map_err(err)
 }
+
+/// Debug command: Export Apple tokens for API testing (careful - these are sensitive!)
+#[tauri::command]
+pub async fn debug_export_apple_tokens() -> Result<serde_json::Value, String> {
+    let tokens = storage::load_apple_tokens().map_err(err)?;
+    
+    match tokens {
+        Some(t) => {
+            // Test the tokens immediately
+            let client = reqwest::Client::new();
+            let test_resp = client
+                .get("https://api.music.apple.com/v1/me/recent/played/tracks?limit=1")
+                .header("Authorization", format!("Bearer {}", t.developer_token))
+                .header("Music-User-Token", &t.music_user_token)
+                .header("Origin", "https://music.apple.com")
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await;
+                
+            let test_result = match test_resp {
+                Ok(r) => {
+                    let status = r.status();
+                    let body = r.text().await.unwrap_or_default();
+                    serde_json::json!({
+                        "status": status.as_u16(),
+                        "ok": status.is_success(),
+                        "body_preview": body.chars().take(200).collect::<String>()
+                    })
+                }
+                Err(e) => serde_json::json!({"error": e.to_string()})
+            };
+            
+            Ok(serde_json::json!({
+                "tokens_present": true,
+                "developer_token_preview": format!("{}...", &t.developer_token[..20.min(t.developer_token.len())]),
+                "music_user_token_preview": format!("{}...", &t.music_user_token[..20.min(t.music_user_token.len())]),
+                "api_test": test_result,
+                "curl_command_recent": format!(
+                    "curl -H \"Authorization: Bearer {}\" -H \"Music-User-Token: {}\" -H \"Origin: https://music.apple.com\" \"https://api.music.apple.com/v1/me/recent/played/tracks?limit=10\"",
+                    t.developer_token, t.music_user_token
+                ),
+            }))
+        }
+        None => Ok(serde_json::json!({"tokens_present": false}))
+    }
+}
