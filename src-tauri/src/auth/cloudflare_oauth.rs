@@ -34,7 +34,7 @@ offline_access";
 const AUTH_TIMEOUT_SECS: u64 = 300;
 
 const CALLBACK_HTML: &str = r#"<!DOCTYPE html>
-<html><head><title>amusic — connected</title><meta charset="utf-8"><style>
+<html><head><title>aScrobble — connected</title><meta charset="utf-8"><style>
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
        background: #0f0f10; color: #fff; display: flex; align-items: center;
        justify-content: center; height: 100vh; margin: 0; }
@@ -47,7 +47,7 @@ p { margin: 0; opacity: 0.6; font-size: 14px; line-height: 1.5; }
 <div class="card">
   <div class="check">✓</div>
   <h1>Cloudflare connected</h1>
-  <p>You can close this tab and return to amusic.</p>
+  <p>You can close this tab and return to aScrobble.</p>
 </div>
 </body></html>"#;
 

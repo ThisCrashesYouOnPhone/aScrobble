@@ -3,7 +3,7 @@
 //! Given the user's API token, account id, and stored credentials, this
 //! module:
 //!   1. Reads the bundled worker.js from app resources
-//!   2. Ensures a KV namespace named "amusic-state" exists
+//!   2. Ensures a KV namespace named "ascrobble-state" exists
 //!   3. Uploads the worker script with the KV binding
 //!   4. Sets four worker secrets (Last.fm credentials + a random admin secret)
 //!   5. Seeds Apple tokens directly into KV (so they can be rotated later
@@ -176,7 +176,7 @@ pub async fn deploy_full(
 
 fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent("amusic/0.2 deploy")
+        .user_agent("aScrobble/0.2 deploy")
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .expect("reqwest client build")

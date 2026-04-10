@@ -16,7 +16,7 @@ export function Settings({ onBack }: SettingsProps) {
 
   // Load settings from storage
   useEffect(() => {
-    const saved = localStorage.getItem("amusic-settings");
+    const saved = localStorage.getItem("ascrobble-settings");
     if (saved) {
       const parsed = JSON.parse(saved);
       setTheme(parsed.theme || "dark");
@@ -42,7 +42,7 @@ export function Settings({ onBack }: SettingsProps) {
       [key]: value,
     };
     
-    localStorage.setItem("amusic-settings", JSON.stringify(newSettings));
+    localStorage.setItem("ascrobble-settings", JSON.stringify(newSettings));
     
     if (key === 'theme') {
       document.documentElement.setAttribute("data-theme", value as string);
@@ -80,7 +80,7 @@ type SettingsState = {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `amusic-logs-${new Date().toISOString().split("T")[0]}.txt`;
+      a.download = `ascrobble-logs-${new Date().toISOString().split("T")[0]}.txt`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -95,7 +95,7 @@ type SettingsState = {
       await invoke("open_data_folder");
     } catch {
       // Fallback - show path
-      alert("Data folder: %APPDATA%/amusic");
+      alert("Data folder: %APPDATA%/aScrobble");
     }
   };
 
@@ -118,7 +118,7 @@ type SettingsState = {
         <div className="card-header">
           <div>
             <h2 className="card-title">Settings</h2>
-            <p className="card-subtitle">Customize your amusic experience</p>
+            <p className="card-subtitle">Customize your aScrobble experience</p>
           </div>
           <button className="btn btn-secondary" onClick={onBack}>
             ← Back

@@ -141,7 +141,7 @@ Requirements:
 ## Project structure
 
 ```
-amusic/
+aScrobble/
 ├── src/                              React frontend (TypeScript)
 │   ├── components/
 │   │   ├── Welcome.tsx              landing screen
@@ -226,7 +226,7 @@ $ npm run tauri build
 ## Security notes
 
 - **Tokens never live in plaintext on disk.** The Apple tokens, Last.fm credentials, and Cloudflare API token are stored in your OS keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service).
-- **No server runs anywhere we control.** amusic is a deployment tool. It pushes the scrobbler directly from your machine to your Cloudflare account. We have no backend, no telemetry, no analytics.
+- **No server runs anywhere we control.** aScrobble is a deployment tool. It pushes the scrobbler directly from your machine to your Cloudflare account. We have no backend, no telemetry, no analytics.
 - **The worker secret values live only on Cloudflare** after deploy. The desktop app keeps a local copy in the keychain so you can rotate credentials without re-authenticating from scratch.
 - **The `STATUS_AUTH_KEY`** that protects the worker's `/status` and `/trigger` endpoints is randomly generated per deploy (32 bytes from the OS RNG, base64-url encoded). It's stored as a Cloudflare worker secret and in your local OS keychain. Without it, anyone could read your scrobble history or trigger arbitrary polls by guessing your `workers.dev` URL.
 - **Apple tokens are stored in KV, not as worker secrets.** This is intentional — KV values are mutable while worker secrets require a redeploy to change. When your Apple tokens expire (every ~6 months), the desktop app rotates them with two `PUT` calls instead of a full redeploy.
@@ -235,9 +235,9 @@ $ npm run tauri build
 
 The bundled `worker.js` runs on Cloudflare's cron schedule (`*/5 * * * *`) and does this on every tick:
 
-1. Read `apple_dev_token` and `apple_user_token` from KV (the `AMUSIC_STATE` namespace)
+1. Read `apple_dev_token` and `apple_user_token` from KV (the `ASCRIBBLE_STATE` namespace)
 2. Fetch `GET /v1/me/recent/played/tracks` from Apple Music API, paginated 5 times to get up to 50 most-recent tracks
-3. Load the previous-poll snapshot from KV (`ledger:v1` key, also in `AMUSIC_STATE`)
+3. Load the previous-poll snapshot from KV (`ledger:v1` key, also in `ASCRIBBLE_STATE`)
 4. Run the position-shift detection algorithm:
    - Find the smallest K such that `current[K:] === previous[:len(current)-K]`
    - The first K entries of `current` are new plays
@@ -262,7 +262,7 @@ The detection algorithm correctly handles consecutive plays of the same song —
 
 ## Limitations
 
-- **Tokens expire ~every 6 months.** Apple's developer token and Music User Token both have a finite lifetime. When they expire, the worker logs `apple_token_expired` and stops scrobbling. Re-open amusic and re-authenticate Apple Music — your other credentials stay in place.
+- **Tokens expire ~every 6 months.** Apple's developer token and Music User Token both have a finite lifetime. When they expire, the worker logs `apple_token_expired` and stops scrobbling. Re-open aScrobble and re-authenticate Apple Music — your other credentials stay in place.
 - **Replays of a song already at position 0** can't be detected. If Apple chooses to overwrite-in-place rather than add a duplicate entry to the recent-played list, the API gives us zero signal that anything happened. Future versions may add library `playCount` tracking to fix this at the cost of 10× more API calls per poll.
 - **The 50-track API window can overflow** if you play more than ~50 tracks in 5 minutes. Realistically that's hard to hit unless you queue-skip nonstop.
 - **GitHub Actions cron is unreliable below 10 minutes** — that's why we use Cloudflare Workers. CF cron triggers fire reliably at 5-minute intervals.

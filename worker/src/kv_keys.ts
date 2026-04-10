@@ -1,7 +1,7 @@
 /**
  * KV key constants used by both the worker and the desktop deploy module.
  *
- * These keys live in the AMUSIC_STATE KV namespace alongside the ledger.
+ * These keys live in the ASCRIBBLE_STATE KV namespace alongside the ledger.
  * Apple tokens are stored in KV (not as worker secrets) so the desktop
  * app can rotate them without redeploying the worker.
  *

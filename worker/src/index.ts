@@ -42,7 +42,7 @@ export default {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, x-amusic-auth",
+      "Access-Control-Allow-Headers": "Content-Type, x-ascrobble-auth",
     };
 
     // Handle preflight requests
@@ -56,7 +56,7 @@ export default {
     // Lightweight health check — always open, no auth needed
     if (url.pathname === "/health") {
       return json(
-        { ok: true, service: "amusic-scrobbler", version: "0.2.0" },
+        { ok: true, service: "aScrobble-scrobbler", version: "0.2.0" },
         200,
         corsHeaders
       );
@@ -65,7 +65,7 @@ export default {
     // Everything else requires the STATUS_AUTH_KEY
     const providedKey =
       url.searchParams.get("key") ??
-      request.headers.get("x-amusic-auth") ??
+      request.headers.get("x-ascrobble-auth") ??
       "";
 
     if (!env.STATUS_AUTH_KEY) {

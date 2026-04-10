@@ -188,7 +188,7 @@ export function CloudflareStep({
     <div className="step-page card">
       <h2>Connect Cloudflare</h2>
       <p className="lead">
-        amusic deploys the scrobbler to your own Cloudflare Workers account.
+        aScrobble deploys the scrobbler to your own Cloudflare Workers account.
         It runs on Cloudflare's free tier and keeps working even when your PC
         is fully off.
       </p>
@@ -230,7 +230,7 @@ export function CloudflareStep({
       </div>
 
       <p className="muted">
-        amusic uses Cloudflare's Wrangler OAuth flow to authenticate. You'll
+        aScrobble uses Cloudflare's Wrangler OAuth flow to authenticate. You'll
         see "Wrangler" listed in your Cloudflare authorized applications - this
         is because Cloudflare doesn't offer OAuth app registration for
         third-party developers.

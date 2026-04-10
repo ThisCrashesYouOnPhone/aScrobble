@@ -40,7 +40,7 @@ export async function submitBatch(
         track_name: p.track,
         release_name: p.album || undefined,
         additional_info: {
-          submission_client: "amusic-scrobbler",
+          submission_client: "aScrobble-scrobbler",
           submission_client_version: "0.2.0",
           music_service: "music.apple.com",
           duration_ms: p.duration_ms || undefined,

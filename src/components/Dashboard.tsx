@@ -382,7 +382,7 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
   const openCloudflareDashboard = () => {
     if (!creds.cloudflare_account_id) return;
     open(
-      `https://dash.cloudflare.com/${creds.cloudflare_account_id}/workers/services/view/amusic-scrobbler/production`
+      `https://dash.cloudflare.com/${creds.cloudflare_account_id}/workers/services/view/ascrobble-scrobbler/production`
     ).catch(console.error);
   };
 

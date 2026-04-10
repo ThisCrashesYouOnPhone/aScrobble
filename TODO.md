@@ -1,4 +1,4 @@
-# amusic Recently Scrobbled Enhancement
+# aScrobble Recently Scrobbled Enhancement
 
 ## Steps:
 - [x] Step 1: Add CSS classes to src/styles.css for scrobble-grid, scrobble-card, art-placeholder, kind-badge etc.

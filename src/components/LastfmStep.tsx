@@ -48,7 +48,7 @@ export function LastfmStep({ existing, onComplete, onBack }: LastfmStepProps) {
     <div className="step-page card">
       <h2>Connect Last.fm</h2>
       <p className="lead">
-        amusic needs an API key and shared secret from Last.fm. These come from
+        aScrobble needs an API key and shared secret from Last.fm. These come from
         creating a (free, instant) API application on your Last.fm account.
       </p>
 
@@ -109,11 +109,11 @@ export function LastfmStep({ existing, onComplete, onBack }: LastfmStepProps) {
       <details className="how-it-works">
         <summary>How does this work?</summary>
         <p>
-          When you click Connect, amusic opens{" "}
+          When you click Connect, aScrobble opens{" "}
           <code>https://www.last.fm/api/auth</code> in your browser. You click
           "Yes, allow access" and Last.fm redirects to a temporary HTTP server
           running on your local machine (RFC 8252 native-app loopback flow).
-          amusic catches the redirect, exchanges the temporary token for a
+          aScrobble catches the redirect, exchanges the temporary token for a
           permanent session key via <code>auth.getSession</code>, and stores
           it in your operating system keychain.
         </p>
@@ -151,7 +151,7 @@ export function LastfmStep({ existing, onComplete, onBack }: LastfmStepProps) {
       {busy && (
         <p className="hint">
           Your browser should now be open to Last.fm's authorization page.
-          Click "Yes, allow access" — amusic will detect the callback
+          Click "Yes, allow access" — aScrobble will detect the callback
           automatically.
         </p>
       )}

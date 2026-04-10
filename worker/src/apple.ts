@@ -31,7 +31,7 @@ export class TokenExpiredError extends Error {
   constructor() {
     super(
       "Apple Music API returned 401. Dev token or Music-User-Token expired. " +
-        "Re-open the amusic desktop app to re-authenticate with Apple Music."
+        "Re-open the aScrobble desktop app to re-authenticate with Apple Music."
     );
     this.name = "TokenExpiredError";
   }

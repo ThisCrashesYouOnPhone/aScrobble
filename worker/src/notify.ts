@@ -10,8 +10,8 @@ export async function notifyTokenExpired(webhookUrl: string | undefined): Promis
   if (!webhookUrl) return;
   await postMessage(
     webhookUrl,
-    "🔴 **amusic**: Apple Music tokens expired (401).\n" +
-      "Re-open the amusic desktop app to re-authenticate with Apple Music."
+    "🔴 **aScrobble**: Apple Music tokens expired (401).\n" +
+      "Re-open the aScrobble desktop app to re-authenticate with Apple Music."
   );
 }
 
@@ -22,7 +22,7 @@ export async function notifyMilestone(
   if (!webhookUrl) return;
   await postMessage(
     webhookUrl,
-    `🎵 **amusic**: hit **${total.toLocaleString()}** total scrobbles`
+    `🎵 **aScrobble**: hit **${total.toLocaleString()}** total scrobbles`
   );
 }
 

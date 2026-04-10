@@ -32,12 +32,12 @@ Only do this if:
 You can click "Deploy to Cloudflare" many times without issues. Here's how safety is guaranteed:
 
 **Worker Script**
-- Same name: `amusic-scrobbler`
+- Same name: `aScrobble-scrobbler`
 - Using `PUT` not `POST`, so it **updates existing** worker instead of creating duplicates
 - Each redeploy replaces the previous version
 
 **KV Namespace**
-- Name: `amusic-state`
+- Name: `aScrobble-state`
 - Fetched by name, reused if exists, created once if missing
 - Data persists across redeploys (Apple tokens, sync state, etc.)
 
@@ -47,7 +47,7 @@ You can click "Deploy to Cloudflare" many times without issues. Here's how safet
 - No accumulation or conflicts
 
 **Workers.dev Route**
-- Pattern: `amusic-scrobbler.{subdomain}.workers.dev/*`
+- Pattern: `aScrobble-scrobbler.{subdomain}.workers.dev/*`
 - Created once, reused on subsequent deploys
 - Safe — Cloudflare deduplicates routes automatically
 
@@ -60,12 +60,12 @@ You can click "Deploy to Cloudflare" many times without issues. Here's how safet
 You can click "Deploy to Cloudflare" many times without issues. Here's how safety is guaranteed:
 
 **Worker Script**
-- Same name: `amusic-scrobbler`
+- Same name: `aScrobble-scrobbler`
 - Using `PUT` not `POST`, so it **updates existing** worker instead of creating duplicates
 - Each redeploy replaces the previous version
 
 **KV Namespace**
-- Name: `amusic-state`
+- Name: `aScrobble-state`
 - Fetched by name, reused if exists, created once if missing
 - Data persists across redeploys (Apple tokens, sync state, etc.)
 
@@ -82,7 +82,7 @@ You can click "Deploy to Cloudflare" many times without issues. Here's how safet
 
 ## Cloudflare Authentication Methods
 
-amusic supports two ways to authenticate with Cloudflare:
+aScrobble supports two ways to authenticate with Cloudflare:
 
 ### 1. OAuth (Recommended - Easier)
 Click "Login with Cloudflare" in the app. You'll authenticate in your browser.
@@ -113,7 +113,7 @@ Create a token manually in Cloudflare dashboard and paste it in the app.
 1. **Try the API Token method** - If OAuth fails but API token works, it's a permissions issue
    - Go to Cloudflare dashboard > API Tokens > Create Token
    - Use "Edit Cloudflare Workers" template
-   - Paste in amusic's "Advanced: paste API token instead" section
+   - Paste in aScrobble's "Advanced: paste API token instead" section
 
 2. **Check your workers.dev subdomain** - Must be set up in Cloudflare
    - Go to Cloudflare dashboard > Workers > Settings
@@ -245,13 +245,13 @@ The app stores credentials using the Windows Credential Manager. To check what's
 # View all stored credentials
 cmdkey /list
 
-# Look for entries starting with "dev.amusic.app"
+# Look for entries starting with "dev.aScrobble.app"
 ```
 
-To manually clear amusic credentials:
+To manually clear aScrobble credentials:
 
 ```powershell
-cmdkey /delete:dev.amusic.app:apple-tokens
-cmdkey /delete:dev.amusic.app:lastfm-session
+cmdkey /delete:dev.aScrobble.app:apple-tokens
+cmdkey /delete:dev.aScrobble.app:lastfm-session
 # etc.
 ```

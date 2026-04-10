@@ -62,7 +62,7 @@ fn format_cf_errors(errors: &[CfError]) -> String {
 
 fn client() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent("amusic/0.2")
+        .user_agent("aScrobble/0.2")
         .build()
         .expect("reqwest client")
 }

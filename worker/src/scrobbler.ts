@@ -43,7 +43,7 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
   const startedAt = Date.now();
   const runTime = new Date(startedAt);
 
-  const ledger = await loadLedger(env.AMUSIC_STATE);
+  const ledger = await loadLedger(env.ASCROBBLE_STATE);
   const lastRunTime = parseLastRunTime(ledger);
 
   ledger.stats.total_runs += 1;
@@ -51,8 +51,8 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
 
   // Read Apple tokens from KV (rotatable without redeploying the worker)
   const [appleDevToken, appleUserToken] = await Promise.all([
-    env.AMUSIC_STATE.get(KV_KEY_APPLE_DEV_TOKEN),
-    env.AMUSIC_STATE.get(KV_KEY_APPLE_USER_TOKEN),
+    env.ASCROBBLE_STATE.get(KV_KEY_APPLE_DEV_TOKEN),
+    env.ASCROBBLE_STATE.get(KV_KEY_APPLE_USER_TOKEN),
   ]);
 
   if (!appleDevToken || !appleUserToken) {
@@ -63,7 +63,7 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
     ledger.stats.total_errors += 1;
     ledger.stats.last_error_iso = runTime.toISOString();
     ledger.stats.last_error_message = msg;
-    await saveLedger(env.AMUSIC_STATE, ledger);
+    await saveLedger(env.ASCROBBLE_STATE, ledger);
     return {
       ok: false,
       detected: 0,
@@ -85,7 +85,7 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
       ledger.stats.total_errors += 1;
       ledger.stats.last_error_iso = runTime.toISOString();
       ledger.stats.last_error_message = "apple_token_expired";
-      await saveLedger(env.AMUSIC_STATE, ledger);
+      await saveLedger(env.ASCROBBLE_STATE, ledger);
       await notifyTokenExpired(env.NOTIFY_WEBHOOK_URL);
       return {
         ok: false,
@@ -107,7 +107,7 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
   if (ledger.previous_recent.length === 0) {
     console.log(`First run — snapshotting ${current.length} tracks without scrobbling`);
     ledger.previous_recent = current;
-    await saveLedger(env.AMUSIC_STATE, ledger);
+    await saveLedger(env.ASCROBBLE_STATE, ledger);
     return {
       ok: true,
       detected: 0,
@@ -161,7 +161,7 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
   if (plays.length === 0) {
     console.log("No new plays");
     ledger.previous_recent = current;
-    await saveLedger(env.AMUSIC_STATE, ledger);
+    await saveLedger(env.ASCROBBLE_STATE, ledger);
     return {
       ok: true,
       detected: 0,
@@ -248,7 +248,7 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
   ledger.previous_recent = current;
   ledger.stats.total_scrobbled = newTotal;
   ledger.stats.last_success_iso = runTime.toISOString();
-  await saveLedger(env.AMUSIC_STATE, ledger);
+  await saveLedger(env.ASCROBBLE_STATE, ledger);
 
   return {
     ok: true,
@@ -262,5 +262,5 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
 }
 
 export async function getStatus(env: Env): Promise<LedgerData> {
-  return loadLedger(env.AMUSIC_STATE);
+  return loadLedger(env.ASCROBBLE_STATE);
 }

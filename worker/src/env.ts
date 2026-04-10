@@ -11,7 +11,7 @@
  */
 export interface Env {
   // KV: persistent ledger state AND rotatable Apple tokens
-  AMUSIC_STATE: KVNamespace;
+  ASCRIBBLE_STATE: KVNamespace;
 
   // Last.fm (from Last.fm API account + user auth)
   LASTFM_API_KEY: string;

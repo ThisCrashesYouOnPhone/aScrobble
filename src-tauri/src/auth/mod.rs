@@ -1,4 +1,4 @@
-//! Authentication flows for the three services amusic integrates with.
+//! Authentication flows for the three services aScrobble integrates with.
 
 pub mod apple;
 pub mod cloudflare;
