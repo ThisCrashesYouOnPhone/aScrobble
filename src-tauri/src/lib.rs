@@ -40,6 +40,7 @@ pub fn run() {
             commands::apple_start_auth,
             commands::apple_get_tokens,
             commands::apple_cancel_auth,
+            commands::apple_decode_token_expiry,
 
             // Last.fm
             commands::lastfm_start_auth,

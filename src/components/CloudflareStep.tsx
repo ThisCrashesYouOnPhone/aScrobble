@@ -28,6 +28,7 @@ export function CloudflareStep({
   onBack,
 }: CloudflareStepProps) {
   const [oauthBusy, setOauthBusy] = useState(false);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthAccounts, setOauthAccounts] = useState<CloudflareAccount[]>([]);
   const [oauthSelection, setOauthSelection] = useState(existingAccountId ?? "");
@@ -42,32 +43,56 @@ export function CloudflareStep({
   const [manualError, setManualError] = useState<string | null>(null);
 
   const manualBusy = manualPhase === "validating" || manualPhase === "saving";
-  const busy = oauthBusy || manualBusy;
+  const busy = oauthBusy || manualBusy || loadingAccounts;
 
-  // If we have an existing OAuth session with an account selected, we can skip the login
+  const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
+
+  // Initialize: if we have existing OAuth + account ID, mark as loaded immediately
+  // so the Continue button shows right away, then try to load accounts in background
+  useEffect(() => {
+    if (existingOauth && existingAccountId) {
+      setExistingOauthLoaded(true);
+      setOauthSelection(existingAccountId);
+    }
+  }, [existingOauth, existingAccountId]);
+
+  // Safety timeout: clear loading state after 5 seconds max to prevent indefinite loading
+  useEffect(() => {
+    if (loadingAccounts) {
+      const timeout = setTimeout(() => {
+        setLoadingAccounts(false);
+      }, 5000);
+      return () => clearTimeout(timeout);
+    }
+  }, [loadingAccounts]);
+
+  // Background load of accounts (for the dropdown if multiple accounts exist)
   useEffect(() => {
     if (
       existingOauth &&
       existingAccountId &&
       oauthAccounts.length === 0 &&
+      !loadingAccounts &&
       !oauthBusy
     ) {
-      // Quietly load accounts from existing OAuth so user can "continue"
-      setOauthBusy(true);
+      setLoadingAccounts(true);
+      setAccountsLoadError(null);
       cloudflareListAccounts(existingOauth.access_token)
         .then((accounts) => {
           setOauthAccounts(accounts);
-          setOauthSelection(existingAccountId);
-          setExistingOauthLoaded(true);
+          if (accounts.length > 0 && !oauthSelection) {
+            setOauthSelection(existingAccountId);
+          }
         })
         .catch((e) => {
-          // If loading fails, just reset and let user do new login
+          const msg = typeof e === "string" ? e : (e as Error).message;
           console.warn("Could not load existing OAuth accounts:", e);
-          setExistingOauthLoaded(false);
+          setAccountsLoadError(msg ?? "Failed to load Cloudflare accounts");
+          // Don't disable the continue button - user can still proceed
         })
-        .finally(() => setOauthBusy(false));
+        .finally(() => setLoadingAccounts(false));
     }
-  }, [existingOauth, existingAccountId, oauthAccounts.length, oauthBusy]);
+  }, [existingOauth, existingAccountId, oauthAccounts.length, loadingAccounts, oauthBusy, oauthSelection]);
 
   const openTokenPage = async () => {
     try {
@@ -168,30 +193,38 @@ export function CloudflareStep({
         is fully off.
       </p>
 
+      {loadingAccounts && (
+        <div className="status status-info">
+          <span className="status-icon">◐</span>
+          <div>Loading your Cloudflare accounts...</div>
+        </div>
+      )}
+
+      {accountsLoadError && (
+        <div className="status status-warning">
+          <span className="status-icon">!</span>
+          <div className="status-content">
+            <div className="status-title">Could not refresh account list</div>
+            <div className="meta">{accountsLoadError}</div>
+          </div>
+        </div>
+      )}
+
       <div className="actions">
         <button
           className="btn btn-primary btn-large"
           onClick={handleOauthLogin}
           disabled={busy}
         >
-          {oauthBusy ? "Opening Cloudflare login..." : "Login with Cloudflare"}
+          {oauthBusy ? "Opening browser..." : "Login with Cloudflare"}
         </button>
-        {existingOauthLoaded && (
+        {existingOauthLoaded && oauthSelection && (
           <button
-            className="btn btn-primary btn-large"
+            className="btn btn-accent btn-large"
             onClick={handleOauthContinue}
-            disabled={!oauthSelection || busy}
+            disabled={oauthBusy}
           >
-            Continue with existing session -&gt;
-          </button>
-        )}
-        {oauthAccounts.length > 1 && !existingOauthLoaded && (
-          <button
-            className="btn btn-primary"
-            onClick={handleOauthContinue}
-            disabled={!oauthSelection || busy}
-          >
-            Save account and continue -&gt;
+            Continue with saved session -&gt;
           </button>
         )}
       </div>
@@ -213,7 +246,8 @@ export function CloudflareStep({
         </div>
       )}
 
-      {(oauthAccounts.length > 1 || existingOauthLoaded) && (
+      {/* Only show account picker if we loaded multiple accounts from OAuth */}
+      {oauthAccounts.length > 1 && (
         <div className="form">
           <div className="form-row">
             <label>

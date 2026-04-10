@@ -8,12 +8,14 @@ import {
   loadUserSettings,
   storageClearAll,
   saveUserSettings,
+  appleDecodeTokenExpiry,
 } from "../lib/tauri";
 import { fetchStatus, triggerScrobble, fetchLastfmAlbumArt } from "../lib/worker-api";
 
 interface DashboardProps {
   creds: StoredCredentials;
   onReset: () => void;
+  onStatusChange?: (status: { color: string; text: string }) => void;
 }
 
 interface AlbumArtCache {
@@ -41,13 +43,123 @@ function relativeTime(iso: string): string {
   return `${days}d ago`;
 }
 
-function daysUntilExpiry(capturedAt: string): number {
-  const captured = new Date(capturedAt).getTime();
-  const expiresAt = captured + 180 * 24 * 60 * 60 * 1000;
+function daysUntilExpiry(capturedAt: string, actualExpiry?: string | null): number {
+  let expiresAt: number;
+  
+  if (actualExpiry) {
+    // Use the actual decoded JWT expiry
+    expiresAt = new Date(actualExpiry).getTime();
+  } else {
+    // Fall back to 180-day estimate
+    const captured = new Date(capturedAt).getTime();
+    expiresAt = captured + 180 * 24 * 60 * 60 * 1000;
+  }
+  
   return Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
 }
 
-export function Dashboard({ creds, onReset }: DashboardProps) {
+// Scrobbles Modal Component
+function ScrobblesModal({ 
+  scrobbles, 
+  albumArtCache, 
+  onClose, 
+  onTrackClick 
+}: { 
+  scrobbles: WorkerLedger['recent_scrobbles'];
+  albumArtCache: AlbumArtCache;
+  onClose: () => void;
+  onTrackClick: (s: any) => void;
+}) {
+  const [page, setPage] = useState(0);
+  const itemsPerPage = 20;
+  
+  // Sort by timestamp descending (newest first)
+  const sortedScrobbles = [...scrobbles].sort((a, b) => 
+    new Date(b.timestamp_iso).getTime() - new Date(a.timestamp_iso).getTime()
+  );
+  
+  const totalPages = Math.ceil(sortedScrobbles.length / itemsPerPage);
+  const start = page * itemsPerPage;
+  const end = start + itemsPerPage;
+  const pageItems = sortedScrobbles.slice(start, end);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>All Recent Scrobbles</h3>
+          <button className="btn btn-ghost" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body modal-body-scrollable">
+          <div className="scrobble-list">
+            {pageItems.map((s, i) => {
+              const cacheKey = `${s.artist}|${s.album}`;
+              const albumArt = albumArtCache[cacheKey];
+              const actualIndex = start + i;
+              
+              return (
+                <div
+                  key={actualIndex}
+                  className={`scrobble-row ${actualIndex === 0 ? 'scrobble-row--latest' : ''}`}
+                  onClick={() => onTrackClick(s)}
+                >
+                  <div className="scrobble-row-number">{actualIndex + 1}</div>
+                  <div className="scrobble-row-art">
+                    {albumArt ? (
+                      <img src={albumArt} alt={s.album} loading="lazy" />
+                    ) : (
+                      <div className="scrobble-row-art-placeholder">
+                        <span>♪</span>
+                      </div>
+                    )}
+                    {actualIndex === 0 && <div className="scrobble-now-playing" />}
+                  </div>
+                  <div className="scrobble-row-info">
+                    <div className="scrobble-row-track" title={s.track}>{s.track}</div>
+                    <div className="scrobble-row-meta">
+                      <span className="scrobble-row-artist" title={s.artist}>{s.artist}</span>
+                      <span className="scrobble-row-separator">•</span>
+                      <span className="scrobble-row-album" title={s.album}>{s.album}</span>
+                    </div>
+                  </div>
+                  <div className="scrobble-row-right">
+                    {s.kind === "new" && <span className="scrobble-badge" title="New play">♫</span>}
+                    <span className="scrobble-row-time">{relativeTime(s.timestamp_iso)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        {totalPages > 1 && (
+          <div className="modal-actions">
+            <div className="pagination">
+              <button 
+                className="btn btn-sm" 
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+              >
+                ← Previous
+              </button>
+              <span className="pagination-info">
+                Page {page + 1} of {totalPages}
+              </span>
+              <button 
+                className="btn btn-sm" 
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
   const [workerUrl, setWorkerUrl] = useState<string | null>(null);
   const [authKey, setAuthKey] = useState<string | null>(null);
   const [ledger, setLedger] = useState<WorkerLedger | null>(null);
@@ -61,6 +173,33 @@ export function Dashboard({ creds, onReset }: DashboardProps) {
   const [subdomainMissing, setSubdomainMissing] = useState(false);
   const [albumArtCache, setAlbumArtCache] = useState<AlbumArtCache>({});
   const [updatingSettings, setUpdatingSettings] = useState(false);
+  const [showAllScrobbles, setShowAllScrobbles] = useState(false);
+  const [decodedAppleExpiry, setDecodedAppleExpiry] = useState<string | null>(creds.apple?.expires_at || null);
+
+  // Notify parent of status changes
+  useEffect(() => {
+    if (!onStatusChange) return;
+    
+    const stats = ledger?.stats;
+    let color = "gray";
+    let text = "Unknown";
+    
+    if (!ledger) {
+      color = "gray";
+      text = "No data";
+    } else if (stats?.last_error_message) {
+      color = "red";
+      text = "Error";
+    } else if (ledger.last_run_iso && Date.now() - new Date(ledger.last_run_iso).getTime() < (settings.poll_interval_minutes + 2) * 60_000) {
+      color = "green";
+      text = "Running";
+    } else {
+      color = "yellow";
+      text = "Stale";
+    }
+    
+    onStatusChange({ color, text });
+  }, [ledger, settings.poll_interval_minutes, onStatusChange]);
 
   const refreshStatus = useCallback(async () => {
     if (!workerUrl || !authKey) return;
@@ -114,6 +253,23 @@ export function Dashboard({ creds, onReset }: DashboardProps) {
     })();
   }, []);
 
+  // Decode Apple token expiry on mount if not already available
+  useEffect(() => {
+    (async () => {
+      if (creds.apple?.developer_token && !decodedAppleExpiry) {
+        try {
+          const expiry = await appleDecodeTokenExpiry(creds.apple.developer_token);
+          if (expiry) {
+            console.log("Decoded Apple token expiry:", expiry);
+            setDecodedAppleExpiry(expiry);
+          }
+        } catch (e) {
+          console.warn("Failed to decode Apple token expiry:", e);
+        }
+      }
+    })();
+  }, [creds.apple?.developer_token, decodedAppleExpiry]);
+
   // Auto-refresh every 30 seconds
   useEffect(() => {
     if (!workerUrl || !authKey) return;
@@ -135,7 +291,7 @@ export function Dashboard({ creds, onReset }: DashboardProps) {
         if (cacheKey in newCache) continue;
         
         const art = await fetchLastfmAlbumArt(
-          creds.lastfm.api_key,
+          creds.lastfm?.api_key ?? "",
           scrobble.artist,
           scrobble.album
         );
@@ -227,6 +383,14 @@ export function Dashboard({ creds, onReset }: DashboardProps) {
       `https://dash.cloudflare.com/${creds.cloudflare_account_id}/workers`
     ).catch(console.error);
   };
+
+  const openLastfmTrack = (scrobble: any) => {
+    const artist = encodeURIComponent(scrobble.artist);
+    const track = encodeURIComponent(scrobble.track);
+    const url = `https://www.last.fm/music/${artist}/_/${track}`;
+    open(url).catch(console.error);
+  };
+
 
   if (loading) {
     return (
@@ -387,76 +551,91 @@ export function Dashboard({ creds, onReset }: DashboardProps) {
       )}
 
       {/* Recent Scrobbles */}
-      {ledger && ledger.recent_scrobbles.length > 0 && (
-        <div className="card">
+      <div className="card scrobbles-card">
+        <div className="scrobbles-header">
           <h2>Recently scrobbled</h2>
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-            gap: 16,
-            marginTop: 16,
-          }}>
-            {ledger.recent_scrobbles.slice(0, 20).map((s, i) => {
+          {ledger && ledger.recent_scrobbles.length > 0 && (
+            <span className="scrobbles-count">{ledger.recent_scrobbles.length} tracks</span>
+          )}
+        </div>
+        
+        {!ledger || ledger.recent_scrobbles.length === 0 ? (
+          <div className="scrobbles-empty">
+            <div className="scrobbles-empty-icon">🎵</div>
+            <p>No scrobbles yet</p>
+            <p className="scrobbles-empty-hint">Play some music and check back in a few minutes</p>
+          </div>
+        ) : (
+          <div className="scrobble-list">
+            {[...ledger.recent_scrobbles]
+              .sort((a, b) => new Date(b.timestamp_iso).getTime() - new Date(a.timestamp_iso).getTime())
+              .slice(0, 10)
+              .map((s, i) => {
               const cacheKey = `${s.artist}|${s.album}`;
               const albumArt = albumArtCache[cacheKey];
+              const isLatest = i === 0;
               
               return (
                 <div
                   key={i}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    borderRadius: 8,
-                    overflow: "hidden",
-                    background: "#1a1a1d",
-                    border: "1px solid #2a2a2d",
-                    cursor: "pointer",
-                    transition: "all 0.2s",
-                  }}
-                  onMouseEnter={(e) => {
-                    const el = e.currentTarget as HTMLElement;
-                    el.style.transform = "translateY(-4px)";
-                    el.style.boxShadow = "0 4px 12px rgba(255,255,255,0.1)";
-                  }}
-                  onMouseLeave={(e) => {
-                    const el = e.currentTarget as HTMLElement;
-                    el.style.transform = "translateY(0)";
-                    el.style.boxShadow = "none";
-                  }}
+                  className={`scrobble-row ${isLatest ? 'scrobble-row--latest' : ''}`}
+                  onClick={() => openLastfmTrack(s)}
                 >
-                  {/* Album Art or Placeholder */}
-                  <div
-                    style={{
-                      aspectRatio: "1",
-                      background: albumArt
-                        ? `url('${albumArt}') center / cover`
-                        : "linear-gradient(135deg, #2a2a2d 0%, #1a1a1d 100%)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 32,
-                    }}
-                  >
-                    {!albumArt && "🎵"}
-                  </div>
+                  <div className="scrobble-row-number">{i + 1}</div>
                   
-                  {/* Track Info */}
-                  <div style={{ padding: 12, flex: 1, display: "flex", flexDirection: "column" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4, lineHeight: 1.3 }} title={s.track}>
+                  <div className="scrobble-row-art">
+                    {albumArt ? (
+                      <img src={albumArt} alt={s.album} loading="lazy" />
+                    ) : (
+                      <div className="scrobble-row-art-placeholder">
+                        <span>♪</span>
+                      </div>
+                    )}
+                    {isLatest && <div className="scrobble-now-playing" />}
+                  </div>
+
+                  <div className="scrobble-row-info">
+                    <div className="scrobble-row-track" title={s.track}>
                       {s.track}
                     </div>
-                    <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 8, lineHeight: 1.3 }} title={s.artist}>
-                      {s.artist}
+                    <div className="scrobble-row-meta">
+                      <span className="scrobble-row-artist" title={s.artist}>{s.artist}</span>
+                      <span className="scrobble-row-separator">•</span>
+                      <span className="scrobble-row-album" title={s.album}>{s.album}</span>
                     </div>
-                    <div style={{ fontSize: 10, opacity: 0.5, marginTop: "auto" }}>
-                      {relativeTime(s.timestamp_iso)}
-                    </div>
+                  </div>
+
+                  <div className="scrobble-row-right">
+                    {s.kind === 'repeat' && <span className="scrobble-badge">↻</span>}
+                    <span className="scrobble-row-time">{relativeTime(s.timestamp_iso)}</span>
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
+        )}
+        
+        {/* View All button when 10+ scrobbles - sorted by most recent */}
+        {ledger && ledger.recent_scrobbles.length >= 10 && (
+          <div className="actions" style={{ marginTop: 'var(--space-lg)', justifyContent: 'center' }}>
+            <button 
+              className="btn btn-secondary" 
+              onClick={() => setShowAllScrobbles(true)}
+            >
+              View All {ledger.recent_scrobbles.length} Scrobbles →
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Scrobbles Modal */}
+      {showAllScrobbles && ledger && (
+        <ScrobblesModal
+          scrobbles={ledger.recent_scrobbles}
+          albumArtCache={albumArtCache}
+          onClose={() => setShowAllScrobbles(false)}
+          onTrackClick={openLastfmTrack}
+        />
       )}
 
       {/* Token Expiry Card */}
@@ -469,8 +648,17 @@ export function Dashboard({ creds, onReset }: DashboardProps) {
               <span>{new Date(creds.apple.captured_at).toLocaleDateString()}</span>
             </div>
             <div className="summary-row">
-              <span className="summary-label">Estimated expiry</span>
-              <span>{daysUntilExpiry(creds.apple.captured_at)} days remaining</span>
+              <span className="summary-label">
+                {decodedAppleExpiry ? "Token expires" : "Estimated expiry"}
+              </span>
+              <span>
+                {daysUntilExpiry(creds.apple.captured_at, decodedAppleExpiry)} days remaining
+                {decodedAppleExpiry && (
+                  <span className="meta" style={{ marginLeft: 8, fontSize: 12 }}>
+                    (from JWT)
+                  </span>
+                )}
+              </span>
             </div>
           </div>
           <div className="actions" style={{ marginTop: 12 }}>

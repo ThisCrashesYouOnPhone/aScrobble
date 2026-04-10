@@ -31,6 +31,9 @@ export const appleGetTokens = (): Promise<AppleTokens | null> =>
 export const appleCancelAuth = (): Promise<void> =>
   invoke("apple_cancel_auth");
 
+export const appleDecodeTokenExpiry = (developerToken: string): Promise<string | null> =>
+  invoke("apple_decode_token_expiry", { developerToken });
+
 // ---------- Last.fm ----------
 
 export const lastfmStartAuth = (

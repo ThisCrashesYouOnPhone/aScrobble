@@ -17,6 +17,38 @@ pub struct AppleTokens {
     pub developer_token: String,
     pub music_user_token: String,
     pub captured_at: String, // ISO-8601
+    pub expires_at: Option<String>, // ISO-8601 from JWT exp claim, if decodable
+}
+
+impl AppleTokens {
+    /// Decode the JWT payload to extract the expiration time
+    pub fn with_decoded_expiry(mut self) -> Self {
+        self.expires_at = Self::decode_jwt_exp(&self.developer_token);
+        self
+    }
+    
+    pub fn decode_jwt_exp(token: &str) -> Option<String> {
+        use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+        
+        // JWT format: header.payload.signature
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        
+        // Decode payload (base64url)
+        let payload = parts[1];
+        let decoded = URL_SAFE_NO_PAD.decode(payload).ok()?;
+        let json_str = String::from_utf8(decoded).ok()?;
+        
+        // Parse JSON to get exp claim
+        let json: serde_json::Value = serde_json::from_str(&json_str).ok()?;
+        let exp = json.get("exp")?.as_i64()?;
+        
+        // Convert Unix timestamp to ISO-8601
+        let datetime = chrono::DateTime::from_timestamp(exp, 0)?;
+        Some(datetime.to_rfc3339())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,32 +96,6 @@ impl Default for UserSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkerLedger {
-    pub version: u32,
-    pub last_run_iso: Option<String>,
-    pub recent_scrobbles: Vec<RecentScrobble>,
-    pub stats: LedgerStats,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecentScrobble {
-    pub artist: String,
-    pub track: String,
-    pub album: Option<String>,
-    pub timestamp: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LedgerStats {
-    pub total_scrobbled: u64,
-    pub total_runs: u64,
-    pub total_errors: u64,
-    pub last_success_iso: Option<String>,
-    pub last_error_iso: Option<String>,
-    pub last_error_message: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeployStatus {
     pub deployed: bool,
     pub worker_name: Option<String>,
@@ -97,6 +103,31 @@ pub struct DeployStatus {
     pub total_scrobbled: u64,
     pub total_runs: u64,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentScrobble {
+    pub artist: String,
+    pub track: String,
+    pub album: Option<String>,
+    pub timestamp_iso: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LedgerStats {
+    pub total_scrobbled: u64,
+    pub total_runs: u64,
+    pub total_errors: u64,
+    pub last_error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkerLedger {
+    pub version: u32,
+    pub last_run_iso: Option<String>,
+    pub recent_scrobbles: Vec<RecentScrobble>,
+    pub stats: LedgerStats,
+}
+
 
 // Generic error string — we convert anyhow to String for serialization
 fn err(e: impl std::fmt::Display) -> String {
@@ -165,6 +196,12 @@ pub async fn cloudflare_oauth_login(app: AppHandle) -> Result<CloudflareOauth, S
     }
 
     Ok(oauth)
+}
+
+/// Decode JWT expiry from an existing Apple developer token
+#[tauri::command]
+pub fn apple_decode_token_expiry(developer_token: String) -> Result<Option<String>, String> {
+    Ok(AppleTokens::decode_jwt_exp(&developer_token))
 }
 
 #[tauri::command]
@@ -297,34 +334,36 @@ pub async fn get_status_auth_key() -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+pub async fn get_worker_status() -> Result<WorkerLedger, String> {
+    let worker_url = storage::load_worker_url().map_err(err)?;
+    let auth_key = storage::load_status_auth_key().map_err(err)?;
+
+    if worker_url.is_none() || auth_key.is_none() {
+        return Err("Worker not deployed or missing status auth key".to_string());
+    }
+
+    let ledger_url = format!("{}/status?key={}", worker_url.unwrap(), auth_key.unwrap());
+    let resp = reqwest::Client::new()
+        .get(&ledger_url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch worker ledger: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Worker status HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+
+    let ledger = resp.json::<WorkerLedger>().await
+        .map_err(|e| format!("Failed to parse worker ledger JSON: {}", e))?;
+
+    Ok(ledger)
+}
+
+
+#[tauri::command]
 pub async fn deploy_status(app: AppHandle, account_id: String) -> Result<DeployStatus, String> {
     crate::deploy::fetch_status(&app, &account_id)
         .await
         .map_err(err)
-}
-
-#[tauri::command]
-pub async fn get_worker_status() -> Result<WorkerLedger, String> {
-    // Load worker URL and auth key from storage
-    let worker_url = storage::load_worker_url()
-        .map_err(err)?
-        .ok_or_else(|| "Worker URL not configured".to_string())?;
-    
-    let auth_key = storage::load_status_auth_key()
-        .map_err(err)?
-        .ok_or_else(|| "Status auth key not configured".to_string())?;
-
-    // Make HTTP GET request to the worker's /status endpoint
-    let url = format!("{}/status?key={}", worker_url, auth_key);
-    let client = reqwest::Client::new();
-    
-    match client.get(&url).send().await {
-        Ok(response) => {
-            match response.json::<WorkerLedger>().await {
-                Ok(ledger) => Ok(ledger),
-                Err(e) => Err(format!("Failed to parse worker response: {}", e))
-            }
-        }
-        Err(e) => Err(format!("Failed to reach worker: {}", e))
-    }
 }

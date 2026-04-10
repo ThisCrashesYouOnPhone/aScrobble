@@ -130,7 +130,8 @@ pub async fn start_auth_flow(app: &AppHandle) -> Result<AppleTokens> {
                     developer_token,
                     music_user_token,
                     captured_at: Utc::now().to_rfc3339(),
-                };
+                    expires_at: None,
+                }.with_decoded_expiry();
 
                 // Persist to OS keychain immediately
                 log::info!("Saving Apple tokens to keychain...");

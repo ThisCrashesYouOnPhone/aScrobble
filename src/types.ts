@@ -5,6 +5,7 @@ export interface AppleTokens {
   developer_token: string;
   music_user_token: string;
   captured_at: string; // ISO-8601
+  expires_at?: string | null; // ISO-8601 from JWT exp claim, if decodable
 }
 
 export interface LastfmSession {
@@ -70,4 +71,4 @@ export interface WorkerLedger {
   stats: LedgerStats;
 }
 
-export type WizardStep = "welcome" | "apple" | "lastfm" | "cloudflare" | "deploy" | "done" | "dashboard";
+export type WizardStep = "welcome" | "apple" | "lastfm" | "cloudflare" | "deploy" | "done" | "dashboard" | "settings";
