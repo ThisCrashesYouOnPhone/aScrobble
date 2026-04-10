@@ -30,7 +30,7 @@ use crate::{auth, storage};
 const CF_API: &str = "https://api.cloudflare.com/client/v4";
 const WORKER_NAME: &str = "ascrobble-scrobbler";
 const KV_NAMESPACE_TITLE: &str = "ascrobble-state";
-const KV_BINDING_NAME: &str = "ASCRIBBLE_STATE";
+const KV_BINDING_NAME: &str = "ASCROBBLE_STATE";
 const COMPAT_DATE: &str = "2025-04-01";
 const VALID_INTERVALS: &[u32] = &[1, 2, 5, 10, 15, 30];
 const TOTAL_STEPS: u32 = 9;
@@ -378,7 +378,11 @@ async fn upload_worker_script(
             }
         }
     });
-
+    log::info!(
+        "Uploading worker with KV binding name: '{}' (namespace_id: {})",
+        KV_BINDING_NAME, kv_namespace_id
+    );
+    log::debug!("Full metadata: {}", serde_json::to_string_pretty(&metadata).unwrap_or_default());
     let form = Form::new()
         .part(
             "metadata",
@@ -635,14 +639,25 @@ async fn enable_workers_dev_route(
         .unwrap_or_default();
 
     if !status.is_success() {
+        // Authorization errors (401 Unauthorized, 403 Forbidden) indicate
+        // credentials or permissions issues that must be fixed by the user.
+        // Abort the deployment immediately so they see the error clearly.
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            return Err(anyhow!(
+                "Cloudflare API permission error (HTTP {}): {}. \
+                 Check that your API token has 'Workers:Edit' permission.",
+                status,
+                body.chars().take(300).collect::<String>()
+            ));
+        }
+
+        // Other errors (5xx, 4xx besides 401/403) are non-fatal:
+        // the worker is deployed; only the HTTP URL (workers.dev) won't be reachable.
         log::warn!(
-            "workers.dev route enable returned HTTP {}: {}",
+            "workers.dev route enable returned HTTP {}: {} — continuing with warning",
             status,
             body.chars().take(300).collect::<String>()
         );
-        // Non-fatal: the worker is deployed and the cron will work; only the
-        // HTTP URL (workers.dev) won't be reachable. Propagate as a warning
-        // rather than aborting the whole deploy.
         return Ok(());
     }
 

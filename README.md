@@ -235,9 +235,9 @@ $ npm run tauri build
 
 The bundled `worker.js` runs on Cloudflare's cron schedule (`*/5 * * * *`) and does this on every tick:
 
-1. Read `apple_dev_token` and `apple_user_token` from KV (the `ASCRIBBLE_STATE` namespace)
+1. Read `apple_dev_token` and `apple_user_token` from KV (the `ASCROBBLE_STATE` namespace)
 2. Fetch `GET /v1/me/recent/played/tracks` from Apple Music API, paginated 5 times to get up to 50 most-recent tracks
-3. Load the previous-poll snapshot from KV (`ledger:v1` key, also in `ASCRIBBLE_STATE`)
+3. Load the previous-poll snapshot from KV (`ledger:v1` key, also in `ASCROBBLE_STATE`)
 4. Run the position-shift detection algorithm:
    - Find the smallest K such that `current[K:] === previous[:len(current)-K]`
    - The first K entries of `current` are new plays
