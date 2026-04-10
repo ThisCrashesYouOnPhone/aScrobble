@@ -106,6 +106,12 @@ pub async fn deploy_full(
 
     emit(app, 4, "Uploading worker script");
     upload_worker_script(&client, &token, account_id, &script, &kv_id).await?;
+    
+    // Explicitly set the KV binding to ensure it's attached (especially important
+    // when updating existing workers where the multipart upload might not update bindings)
+    emit(app, 4, "Attaching KV namespace binding");
+    set_kv_binding(&client, &token, account_id, &kv_id).await?;
+    
     // The raw Cloudflare API does NOT automatically enable the workers.dev
     // subdomain route when a script is uploaded — Wrangler does this explicitly.
     // Without this call, fresh deploys result in 404 on the workers.dev URL.
@@ -412,6 +418,50 @@ async fn upload_worker_script(
         .map_err(|e| anyhow!("Failed to parse worker upload response: {}", e))?;
     check_success(envelope, "upload worker script")?;
     Ok(())
+}
+
+/// Explicitly set the KV namespace binding on the worker.
+/// This is a separate API call to ensure the binding is attached even if
+/// the multipart upload didn't apply it properly (e.g., on existing workers).
+async fn set_kv_binding(
+    client: &reqwest::Client,
+    token: &str,
+    account_id: &str,
+    kv_namespace_id: &str,
+) -> Result<()> {
+    let url = format!(
+        "{}/accounts/{}/workers/scripts/{}/bindings",
+        CF_API, account_id, WORKER_NAME
+    );
+    let body = json!({
+        "binding": {
+            "type": "kv_namespace",
+            "name": KV_BINDING_NAME,
+            "namespace": kv_namespace_id
+        }
+    });
+    
+    log::info!("Setting KV binding: {} -> namespace {}", KV_BINDING_NAME, kv_namespace_id);
+    
+    let resp = client
+        .put(&url)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow!("Failed to set KV binding: {}", e))?;
+    
+    let status = resp.status();
+    let body_text = resp.text().await.unwrap_or_default();
+    
+    if status.is_success() {
+        log::info!("Successfully set KV binding: {}", KV_BINDING_NAME);
+        Ok(())
+    } else {
+        log::warn!("KV binding API returned HTTP {}: {}", status, body_text.chars().take(500).collect::<String>());
+        // Don't fail the deploy if this fails - the binding might already be set via the upload
+        Ok(())
+    }
 }
 
 // ---------- Worker secrets ----------
