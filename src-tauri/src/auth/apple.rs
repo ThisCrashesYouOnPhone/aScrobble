@@ -14,7 +14,7 @@
 //!      `window.MusicKit?.getInstance?.()` every 500ms.
 //!   3. Once both tokens are present and `isAuthorized` is true, the
 //!      script navigates the window to a reserved sentinel URL
-//!      `https://amusic-capture.invalid/?dev=...&mut=...`.
+//!      `https://ascrobble-capture.invalid/?dev=...&mut=...`.
 //!   4. Our `on_navigation` callback intercepts that sentinel, extracts
 //!      the tokens from the query string, cancels the navigation, and
 //!      delivers them via a oneshot channel back to the waiting command.
@@ -37,7 +37,7 @@ use crate::storage;
 
 const WINDOW_LABEL: &str = "apple-auth";
 const AUTH_TIMEOUT_SECS: u64 = 600; // 10 min — generous for 2FA flows
-const CAPTURE_HOST: &str = "amusic-capture.invalid";
+const CAPTURE_HOST: &str = "ascrobble-capture.invalid";
 
 /// Modern Safari user-agent. Critical that this does NOT contain "wry" or
 /// "Tauri" — Apple's MusicKit JS does UA sniffing in places and anything
@@ -52,8 +52,8 @@ const SPOOF_UA: &str =
 /// when init_script fires twice (e.g., after the Apple ID redirect back).
 const POLL_SCRIPT: &str = r#"
 (function() {
-  if (window.__amusicPolling) return;
-  window.__amusicPolling = true;
+  if (window.__ascrobblePolling) return;
+  window.__ascrobblePolling = true;
   var attempts = 0;
   function poll() {
     attempts++;
@@ -61,7 +61,7 @@ const POLL_SCRIPT: &str = r#"
     try {
       var mk = window.MusicKit && window.MusicKit.getInstance && window.MusicKit.getInstance();
       if (mk && mk.developerToken && mk.musicUserToken && mk.isAuthorized) {
-        var url = "https://amusic-capture.invalid/?" +
+        var url = "https://ascrobble-capture.invalid/?" +
           "dev=" + encodeURIComponent(mk.developerToken) +
           "&mut=" + encodeURIComponent(mk.musicUserToken);
         window.location.href = url;

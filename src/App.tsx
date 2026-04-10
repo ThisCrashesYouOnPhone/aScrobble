@@ -65,7 +65,7 @@ function Sidebar({
     <aside className="app-sidebar">
       <div className="sidebar-logo">
         <div className="sidebar-logo-icon">♫</div>
-        <span>amusic</span>
+        <span>aScrobble</span>
       </div>
 
       <nav className="sidebar-nav">
@@ -298,9 +298,9 @@ export default function App() {
       </main>
 
       <footer className="app-footer">
-        <span>amusic v0.2.0</span>
+        <span>aScrobble v1.0.0</span>
         <div className="footer-links">
-          <a href="https://github.com/yourname/amusic" target="_blank" rel="noreferrer">
+          <a href="https://github.com/ThisCrashesYouOnPhone/aScrobble" target="_blank" rel="noreferrer">
             GitHub
           </a>
           <a href="#" onClick={(e) => { e.preventDefault(); setStep("welcome"); }}>

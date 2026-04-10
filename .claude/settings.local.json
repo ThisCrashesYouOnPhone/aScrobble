@@ -7,7 +7,13 @@
       "Bash(node -e \"const fs=require\\('fs'\\); fs.writeFileSync\\('C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\alecb\\\\\\\\\\\\\\\\Desktop\\\\\\\\\\\\\\\\amusic\\\\\\\\\\\\\\\\src-tauri\\\\\\\\\\\\\\\\src\\\\\\\\\\\\\\\\auth\\\\\\\\\\\\\\\\cloudflare_oauth.rs', fs.readFileSync\\(0,'utf8'\\)\\)\")",
       "Bash(cargo check:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m ':*)"
+      "Bash(git commit -m ':*)",
+      "Bash(gh pr create --title 'v1 pre-production feature pass' --body ':*)",
+      "Bash(where gh:*)",
+      "Bash(winget list:*)",
+      "WebFetch(domain:upload.wikimedia.org)",
+      "WebFetch(domain:uxwing.com)",
+      "WebFetch(domain:www.last.fm)"
     ]
   }
 }

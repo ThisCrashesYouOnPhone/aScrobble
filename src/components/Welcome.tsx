@@ -17,7 +17,7 @@ export function Welcome({ onNext, hasCreds }: WelcomeProps) {
     <div className="welcome card">
       <h1>Scrobble Apple Music to Last.fm</h1>
       <p className="lead">
-        amusic deploys a tiny scrobbler to your own Cloudflare account that
+        aScrobble deploys a tiny scrobbler to your own Cloudflare account that
         polls your Apple Music recently-played list every 5 minutes and pushes
         new plays to Last.fm. After setup you can close this app — the
         scrobbler runs forever in the cloud.

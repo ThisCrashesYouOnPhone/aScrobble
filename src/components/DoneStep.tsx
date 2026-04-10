@@ -14,7 +14,7 @@ export function DoneStep({ creds, onReset }: DoneStepProps) {
   const openCloudflareDashboard = () => {
     if (!creds.cloudflare_account_id) return;
     open(
-      `https://dash.cloudflare.com/${creds.cloudflare_account_id}/workers/services/view/amusic-scrobbler/production`
+      `https://dash.cloudflare.com/${creds.cloudflare_account_id}/workers/services/view/ascrobble-scrobbler/production`
     ).catch(console.error);
   };
 
@@ -41,7 +41,7 @@ export function DoneStep({ creds, onReset }: DoneStepProps) {
       <div className="big-check">✓</div>
       <h1>You're all set</h1>
       <p className="lead">
-        The amusic scrobbler is live on your Cloudflare account and will poll
+        The aScrobble scrobbler is live on your Cloudflare account and will poll
         Apple Music every 5 minutes from now on. You can close this app — the
         scrobbler runs entirely in the cloud.
       </p>
@@ -56,7 +56,7 @@ export function DoneStep({ creds, onReset }: DoneStepProps) {
         <div className="summary-row">
           <div className="summary-label">Hosted on</div>
           <button className="link-btn" onClick={openCloudflareDashboard}>
-            Cloudflare Workers (amusic-scrobbler) →
+            Cloudflare Workers (ascrobble-scrobbler) →
           </button>
         </div>
         <div className="summary-row">

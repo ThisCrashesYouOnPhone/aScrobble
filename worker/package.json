@@ -1,6 +1,6 @@
 {
-  "name": "amusic-worker",
-  "version": "0.2.0",
+  "name": "ascrobble-worker",
+  "version": "1.0.0",
   "private": true,
   "description": "Cloudflare Worker that polls Apple Music and scrobbles to Last.fm",
   "scripts": {

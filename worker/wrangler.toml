@@ -4,7 +4,7 @@
 # Worker can be tested locally before being bundled into the exe.
 #
 # For local dev:
-#   1. Create a KV namespace:  npx wrangler kv namespace create AMUSIC_STATE
+#   1. Create a KV namespace:  npx wrangler kv namespace create ASCROBBLE_STATE
 #   2. Paste the returned id below under kv_namespaces.id
 #   3. Put your secrets:
 #        npx wrangler secret put APPLE_DEV_TOKEN
@@ -15,7 +15,7 @@
 #        npx wrangler secret put STATUS_AUTH_KEY
 #   4. npx wrangler dev
 
-name = "amusic-scrobbler"
+name = "ascrobble-scrobbler"
 main = "src/index.ts"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
@@ -25,7 +25,7 @@ compatibility_flags = ["nodejs_compat"]
 crons = ["*/5 * * * *"]
 
 [[kv_namespaces]]
-binding = "AMUSIC_STATE"
+binding = "ASCROBBLE_STATE"
 id = "REPLACE_ME_AFTER_kv_namespace_create"
 
 [vars]

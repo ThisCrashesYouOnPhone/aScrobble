@@ -1,14 +1,16 @@
-# amusic
+# aScrobble
+
+[![GitHub stars](https://img.shields.io/github/stars/ThisCrashesYouOnPhone/aScrobble?style=flat)](https://github.com/ThisCrashesYouOnPhone/aScrobble)
 
 A desktop deployment wizard that puts an Apple Music → Last.fm scrobbler on your own Cloudflare account. Click through three auth steps, click Deploy, and walk away — the scrobbler runs forever in the cloud at zero cost. Your PC can be off.
 
 ## What it actually does
 
-amusic is a single-binary Tauri app that:
+aScrobble is a single-binary Tauri app that:
 
-1. **Captures Apple Music tokens** by spawning an embedded webview to `music.apple.com`. You sign in with Apple ID and 2FA exactly as you would in any browser. amusic reads `MusicKit.getInstance().developerToken` and `.musicUserToken` from the page and stores them in your OS keychain.
-2. **Captures a Last.fm session** via the standards-compliant RFC 8252 loopback OAuth flow. amusic spins up a temporary localhost HTTP server, opens Last.fm's auth page in your default browser, catches the redirect, and exchanges the temporary token for a permanent session key.
-3. **Captures a Cloudflare API token** that you create in your dashboard via a pre-filled "Edit Cloudflare Workers" template link. amusic validates it and lists your accounts so you can pick which one hosts the scrobbler.
+1. **Captures Apple Music tokens** by spawning an embedded webview to `music.apple.com`. You sign in with Apple ID and 2FA exactly as you would in any browser. aScrobble reads `MusicKit.getInstance().developerToken` and `.musicUserToken` from the page and stores them in your OS keychain.
+2. **Captures a Last.fm session** via the standards-compliant RFC 8252 loopback OAuth flow. aScrobble spins up a temporary localhost HTTP server, opens Last.fm's auth page in your default browser, catches the redirect, and exchanges the temporary token for a permanent session key.
+3. **Captures a Cloudflare API token** that you create in your dashboard via a pre-filled "Edit Cloudflare Workers" template link. aScrobble validates it and lists your accounts so you can pick which one hosts the scrobbler.
 4. **Deploys the scrobbler.** A bundled `worker.js` is uploaded to your Cloudflare account along with: a KV namespace for state, four worker secrets (Last.fm credentials + a generated admin secret), seeded Apple tokens in KV, and a 5-minute cron trigger.
 
 After deploy, the worker polls the Apple Music recently-played API every 5 minutes, detects new and repeat plays via a position-shift diffing algorithm, walks each play's duration backwards from the poll time to assign realistic timestamps, and submits to Last.fm.
@@ -17,7 +19,7 @@ After deploy, the worker polls the Apple Music recently-played API every 5 minut
 
 ```
 ┌────────────────────────────────────────────────┐
-│              amusic desktop app                │
+│             aScrobble desktop app              │
 │                                                │
 │  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │
 │  │  Apple   │  │ Last.fm  │  │  Cloudflare  │  │
@@ -43,7 +45,7 @@ After deploy, the worker polls the Apple Music recently-played API every 5 minut
 │         Your own Cloudflare account            │
 │                                                │
 │   ┌─────────────────────┐  ┌────────────────┐  │
-│   │  amusic-scrobbler   │──│  amusic-state  │  │
+│   │  ascrobble-scrobbler│──│ ascrobble-state│  │
 │   │  Worker (5-min cron)│  │  KV namespace  │  │
 │   └──────────┬──────────┘  │                │  │
 │              │             │ • ledger:v1    │  │
@@ -58,45 +60,59 @@ After deploy, the worker polls the Apple Music recently-played API every 5 minut
 ```
 
 The deployed worker is built from TypeScript source in `worker/` (not a hand-written
-single-file script). At amusic build time, esbuild bundles `worker/src/index.ts`
+single-file script). At aScrobble build time, esbuild bundles `worker/src/index.ts`
 and its dependencies into a single ~22kb ESM file at `worker/dist/worker.js`,
 which is then copied into `src-tauri/resources/worker.js` and bundled inside
 the desktop installer as a Tauri resource. At deploy time, `deploy.rs` reads
 that resource and uploads it to Cloudflare via the REST API — no `wrangler`
 binary required on the user's machine.
 
-**Apple tokens live in KV, not as worker secrets.** Worker secrets are
-immutable per deploy in Cloudflare's model — to change one you have to
-re-upload the script. KV values are mutable via simple `PUT` calls. So we
-seed Apple tokens to KV at deploy time, and when they expire (~6 months),
-the desktop app can rotate them with two KV `PUT`s instead of a full
-redeploy.
+**Why Apple tokens live in KV:** Worker secrets are immutable per deploy in Cloudflare's model (changing one requires re-uploading the entire script). KV values are mutable via simple `PUT` calls. So aScrobble seeds Apple tokens to KV at deploy time, and when they expire (~6 months), the app can rotate them with two KV `PUT`s instead of a full redeploy.
 
 ## Quick start
 
-You need:
+**Requirements:**
 - An Apple Music subscription
 - A free Last.fm account
-- A free Cloudflare account
-- A free Last.fm API application (the wizard tells you where to get one)
+- A free Cloudflare account (no payment required)
+- A free Last.fm API application (the wizard guides you through setup)
 
-Then:
+**Installation:**
 
-1. Download the latest `amusic` release for your platform from the Releases page
-2. Run it
-3. Click through the wizard (Apple → Last.fm → Cloudflare → Deploy)
+1. Download the latest release for your platform from the [Releases page](https://github.com/ThisCrashesYouOnPhone/aScrobble/releases)
+2. Run the installer and launch aScrobble
+3. Click through the wizard: Apple Music → Last.fm → Cloudflare → Deploy
 4. Close the app
 
-Your scrobbler is now running on Cloudflare. Open Last.fm in 5–10 minutes and play some music — scrobbles should start appearing.
+Your scrobbler is now live on Cloudflare and will run 24/7 — even when your PC is off. Play music and scrobbles will appear on Last.fm within 5–10 minutes.
+
+## Features
+
+✅ **Zero running costs** — runs on Cloudflare's free tier
+
+✅ **PC doesn't need to be on** — works 24/7 in the cloud
+
+✅ **Detects repeated plays** — position-shift algorithm + optional play count verification
+
+✅ **Auto-rotating tokens** — Apple tokens renewed without redeploying
+
+✅ **Optional integrations** — ListenBrainz and Discord/Slack webhooks
+
+✅ **Auto-updates** — notifies you when new versions are available
+
+⚠️ **Limitations:**
+- Apple Music API returns no metadata — timestamps are inferred from poll time and track duration
+- Cloudflare secrets propagate in ~15 seconds on first deploy (progress bar shows "Waiting for worker to be ready")
+- Cannot detect backfilled/offline plays in Apple Music
 
 ## Building from source
 
 ```bash
-git clone https://github.com/yourname/amusic
-cd amusic
+git clone https://github.com/ThisCrashesYouOnPhone/aScrobble
+cd aScrobble
 npm install
 npm run tauri dev          # development mode (frontend hot-reload)
-npm run tauri build        # production build
+npm run tauri build        # production build (outputs installer)
 ```
 
 `npm run tauri build` automatically chains the worker bundling step before

@@ -447,60 +447,116 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
 
       {/* Status Panel */}
       <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>amusic-scrobbler</h1>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-text-tertiary)", marginBottom: 8 }}>
+              Worker
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <button
+                className="link-btn"
+                onClick={openLastfmProfile}
+                style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 600 }}
+              >
+                <img
+                  src="https://www.last.fm/static/images/lastfm_avatar_twitter.52a5d69a85ac.png"
+                  alt="Last.fm"
+                  width={18}
+                  height={18}
+                  style={{ borderRadius: 4, flexShrink: 0 }}
+                />
+                {creds.lastfm?.username ?? "last.fm"}
+              </button>
+              <span style={{ color: "var(--color-border-hover)", fontSize: 16, lineHeight: 1 }}>·</span>
+              <button
+                className="link-btn"
+                onClick={openCloudflareDashboard}
+                style={{ display: "flex", alignItems: "center", gap: 5, opacity: 0.55 }}
+                title="Open Cloudflare dashboard"
+              >
+                <img
+                  src="https://upload.wikimedia.org/wikipedia/commons/9/94/Cloudflare_Logo.png"
+                  alt="Cloudflare"
+                  height={14}
+                  style={{ flexShrink: 0 }}
+                />
+              </button>
+            </div>
+          </div>
+
           <div style={{
-            width: 12,
-            height: 12,
-            borderRadius: "50%",
-            background: statusDot === "green"
-              ? "#4ade80"
-              : statusDot === "yellow"
-              ? "#fbbf24"
-              : statusDot === "red"
-              ? "#fc3c44"
+            flexShrink: 0,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "5px 12px",
+            borderRadius: 20,
+            fontSize: 12,
+            fontWeight: 500,
+            background: statusDot === "green" ? "rgba(74,222,128,0.1)"
+              : statusDot === "yellow" ? "rgba(251,191,36,0.1)"
+              : statusDot === "red" ? "rgba(252,60,68,0.1)"
+              : "rgba(120,120,120,0.08)",
+            color: statusDot === "green" ? "#4ade80"
+              : statusDot === "yellow" ? "#fbbf24"
+              : statusDot === "red" ? "#fc3c44"
               : "#666",
-            boxShadow: statusDot === "green" ? "0 0 8px rgba(74, 222, 128, 0.5)" : undefined,
-          }} />
+            border: `1px solid ${statusDot === "green" ? "rgba(74,222,128,0.2)"
+              : statusDot === "yellow" ? "rgba(251,191,36,0.2)"
+              : statusDot === "red" ? "rgba(252,60,68,0.2)"
+              : "rgba(120,120,120,0.12)"}`,
+          }}>
+            <div style={{
+              width: 6, height: 6, borderRadius: "50%", background: "currentColor", flexShrink: 0,
+              boxShadow: statusDot === "green" ? "0 0 5px currentColor" : "none",
+            }} />
+            {statusDot === "green"
+              ? (ledger?.last_run_iso ? relativeTime(ledger.last_run_iso) : "Active")
+              : statusDot === "yellow" ? "Stale"
+              : statusDot === "red" ? "Error"
+              : "No data"}
+          </div>
         </div>
-        
-        <div className="summary">
-          <div className="summary-row">
-            <span className="summary-label">Scrobbling to</span>
-            <button className="link-btn" onClick={openLastfmProfile}>
-              last.fm/{creds.lastfm?.username ?? "?"}
-            </button>
-          </div>
-          <div className="summary-row">
-            <span className="summary-label">Last run</span>
-            <span style={{ fontFamily: "monospace", fontSize: 12 }}>
-              {ledger?.last_run_iso ? relativeTime(ledger.last_run_iso) : "never"}
-            </span>
-          </div>
-          <div className="summary-row">
-            <span className="summary-label">Status</span>
-            <span style={{
-              color: stats?.last_error_message ? "#fc3c44" : "#4ade80",
-              fontWeight: 500,
+
+        {stats && (
+          <div style={{ display: "flex", gap: 6, marginTop: 16, flexWrap: "wrap" }}>
+            <div style={{
+              padding: "3px 10px", borderRadius: 6,
+              background: "rgba(252,60,68,0.07)", border: "1px solid rgba(252,60,68,0.14)",
+              fontSize: 12, color: "var(--color-text-secondary)",
             }}>
-              {stats?.last_error_message ? (
-                <>
-                  <span style={{ fontSize: 12 }}>Error: </span>
-                  <span style={{ fontSize: 12, opacity: 0.8 }}>{stats.last_error_message.substring(0, 50)}</span>
-                </>
-              ) : (
-                "OK"
-              )}
-            </span>
+              <span style={{ color: "#fc3c44", fontWeight: 600 }}>{stats.total_scrobbled.toLocaleString()}</span>
+              {" "}scrobbled
+            </div>
+            <div style={{
+              padding: "3px 10px", borderRadius: 6,
+              background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)",
+              fontSize: 12, color: "var(--color-text-tertiary)",
+            }}>
+              {stats.total_runs.toLocaleString()} polls
+            </div>
+            {stats.total_errors > 0 && (
+              <div style={{
+                padding: "3px 10px", borderRadius: 6,
+                background: "rgba(252,60,68,0.06)", border: "1px solid rgba(252,60,68,0.18)",
+                fontSize: 12, color: "#fc3c44",
+              }}>
+                {stats.total_errors} errors
+              </div>
+            )}
           </div>
-          <div className="summary-row">
-            <span className="summary-label">Worker</span>
-            <button className="link-btn" onClick={openCloudflareDashboard}>
-              Cloudflare dashboard
-            </button>
+        )}
+
+        {stats?.last_error_message && (
+          <div style={{
+            marginTop: 10, padding: "7px 11px", borderRadius: 6,
+            background: "rgba(252,60,68,0.05)", border: "1px solid rgba(252,60,68,0.14)",
+            fontSize: 11, color: "#fc3c44", fontFamily: "var(--font-mono)",
+          }}>
+            {stats.last_error_message.substring(0, 120)}
           </div>
-        </div>
-        
+        )}
+
         {statusError && (
           <div className="status status-error" style={{ marginTop: 12 }}>
             <span className="status-icon">!</span>
@@ -520,66 +576,13 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
           <div className="status status-error" style={{ marginTop: 12 }}>
             <span className="status-icon">!</span>
             <div>
-              No workers.dev subdomain found. The dashboard needs a workers.dev subdomain to fetch live status.{" "}
-              <button className="link-btn" onClick={openSubdomainSetup}>
-                Set up your subdomain
-              </button>
+              No workers.dev subdomain found.{" "}
+              <button className="link-btn" onClick={openSubdomainSetup}>Set one up</button>
+              {" "}to enable live status.
             </div>
           </div>
         )}
       </div>
-
-      {/* Stats Panel */}
-      {stats && (
-        <div className="card" style={{ background: "linear-gradient(135deg, rgba(42,138,61,0.1) 0%, rgba(50,50,55,0.1) 100%)" }}>
-          <h2 style={{ marginTop: 0, marginBottom: 20 }}>Statistics</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 16 }}>
-            <div style={{
-              padding: 16,
-              borderRadius: 8,
-              background: "rgba(252, 60, 68, 0.1)",
-              border: "1px solid rgba(252, 60, 68, 0.2)",
-              textAlign: "center",
-            }}>
-              <div style={{ fontSize: 32, fontWeight: 700, color: "#fc3c44", marginBottom: 8 }}>
-                {stats.total_scrobbled.toLocaleString()}
-              </div>
-              <div style={{ fontSize: 12, color: "#999" }}>Total scrobbled</div>
-            </div>
-            
-            <div style={{
-              padding: 16,
-              borderRadius: 8,
-              background: "rgba(100, 200, 255, 0.1)",
-              border: "1px solid rgba(100, 200, 255, 0.2)",
-              textAlign: "center",
-            }}>
-              <div style={{ fontSize: 32, fontWeight: 700, color: "#64c8ff", marginBottom: 8 }}>
-                {stats.total_runs.toLocaleString()}
-              </div>
-              <div style={{ fontSize: 12, color: "#999" }}>Total runs</div>
-            </div>
-            
-            <div style={{
-              padding: 16,
-              borderRadius: 8,
-              background: stats.total_errors > 0 ? "rgba(204, 51, 51, 0.1)" : "rgba(74, 222, 128, 0.1)",
-              border: stats.total_errors > 0 ? "1px solid rgba(204, 51, 51, 0.2)" : "1px solid rgba(74, 222, 128, 0.2)",
-              textAlign: "center",
-            }}>
-              <div style={{
-                fontSize: 32,
-                fontWeight: 700,
-                color: stats.total_errors > 0 ? "#c33" : "#4ade80",
-                marginBottom: 8,
-              }}>
-                {stats.total_errors}
-              </div>
-              <div style={{ fontSize: 12, color: "#999" }}>Errors</div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Recent Scrobbles */}
       <div className="card scrobbles-card">

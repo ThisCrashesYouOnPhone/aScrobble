@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "amusic",
-  "version": "0.2.0",
-  "identifier": "dev.amusic.app",
+  "productName": "aScrobble",
+  "version": "1.0.0",
+  "identifier": "dev.ascrobble.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "amusic — Apple Music to Last.fm",
+        "title": "aScrobble — Apple Music to Last.fm",
         "width": 900,
         "height": 680,
         "minWidth": 800,
@@ -31,7 +31,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/OWNER/amusic/releases/latest/download/latest.json"
+        "https://github.com/ThisCrashesYouOnPhone/aScrobble/releases/latest/download/latest.json"
       ],
       "dialog": false,
       "pubkey": ""

@@ -7,14 +7,14 @@
 //!   * Linux: Secret Service (GNOME Keyring / KWallet)
 //!
 //! All credentials are serialized as JSON strings and stored under the
-//! service name "dev.amusic.app" with a distinct "user" per credential type.
+//! service name "dev.ascrobble.app" with a distinct "user" per credential type.
 
 use anyhow::{anyhow, Result};
 use keyring::Entry;
 
 use crate::commands::{AppleTokens, CloudflareOauth, LastfmSession, UserSettings};
 
-const SERVICE: &str = "dev.amusic.app";
+const SERVICE: &str = "dev.ascrobble.app";
 
 // Distinct "user" slots within the keyring
 const KEY_APPLE: &str = "apple-tokens";

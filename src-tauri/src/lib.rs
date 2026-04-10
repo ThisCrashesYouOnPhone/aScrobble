@@ -1,4 +1,4 @@
-//! amusic — desktop wizard for deploying an Apple Music → Last.fm scrobbler
+//! aScrobble — desktop wizard for deploying an Apple Music → Last.fm scrobbler
 //! to the user's own Cloudflare Workers account.
 //!
 //! The desktop app is a one-shot tool. It captures credentials for:
@@ -74,5 +74,5 @@ pub fn run() {
             commands::get_status_auth_key,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running amusic");
+        .expect("error while running aScrobble");
 }

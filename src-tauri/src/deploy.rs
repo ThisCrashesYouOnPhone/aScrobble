@@ -28,9 +28,9 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::{auth, storage};
 
 const CF_API: &str = "https://api.cloudflare.com/client/v4";
-const WORKER_NAME: &str = "amusic-scrobbler";
-const KV_NAMESPACE_TITLE: &str = "amusic-state";
-const KV_BINDING_NAME: &str = "AMUSIC_STATE";
+const WORKER_NAME: &str = "ascrobble-scrobbler";
+const KV_NAMESPACE_TITLE: &str = "ascrobble-state";
+const KV_BINDING_NAME: &str = "ASCROBBLE_STATE";
 const COMPAT_DATE: &str = "2025-04-01";
 const VALID_INTERVALS: &[u32] = &[1, 2, 5, 10, 15, 30];
 const TOTAL_STEPS: u32 = 9;
