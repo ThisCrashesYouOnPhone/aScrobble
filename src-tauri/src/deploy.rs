@@ -106,6 +106,10 @@ pub async fn deploy_full(
 
     emit(app, 4, "Uploading worker script");
     upload_worker_script(&client, &token, account_id, &script, &kv_id).await?;
+    // The raw Cloudflare API does NOT automatically enable the workers.dev
+    // subdomain route when a script is uploaded — Wrangler does this explicitly.
+    // Without this call, fresh deploys result in 404 on the workers.dev URL.
+    enable_workers_dev_route(&client, &token, account_id).await?;
 
     emit(app, 5, "Setting worker secrets");
     let status_auth_key = generate_status_auth_key();
@@ -585,6 +589,64 @@ async fn set_cron_schedule(
         .await
         .map_err(|e| anyhow!("Failed to parse cron schedule response: {}", e))?;
     check_success(envelope, "set cron schedule")?;
+    Ok(())
+}
+
+// ---------- workers.dev route ----------
+
+/// Enable the workers.dev subdomain route for the script.
+///
+/// Wrangler calls `POST /accounts/{id}/workers/scripts/{name}/subdomain`
+/// with `{"enabled": true}` after every upload. The raw Cloudflare REST API
+/// does NOT do this automatically. Without this step, fresh deploys result in
+/// a 404 on the workers.dev URL even though the script exists internally.
+///
+/// On re-deploys the route persists from the previous deploy, which is why
+/// this issue only surfaces on the very first deploy (empty account).
+async fn enable_workers_dev_route(
+    client: &reqwest::Client,
+    token: &str,
+    account_id: &str,
+) -> Result<()> {
+    let url = format!(
+        "{}/accounts/{}/workers/scripts/{}/subdomain",
+        CF_API, account_id, WORKER_NAME
+    );
+    let resp = client
+        .post(&url)
+        .bearer_auth(token)
+        .json(&json!({ "enabled": true }))
+        .send()
+        .await
+        .map_err(|e| anyhow!("Failed to enable workers.dev route: {}", e))?;
+
+    // 409 Conflict means "already enabled" — that's fine.
+    let status = resp.status();
+    if status.as_u16() == 409 {
+        log::info!("workers.dev route already enabled (409 Conflict — that's ok)");
+        return Ok(());
+    }
+
+    // Cloudflare returns an empty body (HTTP 200) on success; try to parse
+    // as JSON envelope only when the body is non-empty.
+    let body = resp
+        .text()
+        .await
+        .unwrap_or_default();
+
+    if !status.is_success() {
+        log::warn!(
+            "workers.dev route enable returned HTTP {}: {}",
+            status,
+            body.chars().take(300).collect::<String>()
+        );
+        // Non-fatal: the worker is deployed and the cron will work; only the
+        // HTTP URL (workers.dev) won't be reachable. Propagate as a warning
+        // rather than aborting the whole deploy.
+        return Ok(());
+    }
+
+    log::info!("workers.dev route enabled for {}", WORKER_NAME);
     Ok(())
 }
 
