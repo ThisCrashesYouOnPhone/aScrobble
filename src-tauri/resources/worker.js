@@ -5,7 +5,7 @@ var MAX_OFFSET = 40;
 var TokenExpiredError = class extends Error {
   constructor() {
     super(
-      "Apple Music API returned 401. Dev token or Music-User-Token expired. Re-open the amusic desktop app to re-authenticate with Apple Music."
+      "Apple Music API returned 401. Dev token or Music-User-Token expired. Re-open the aScrobble desktop app to re-authenticate with Apple Music."
     );
     this.name = "TokenExpiredError";
   }
@@ -15,6 +15,23 @@ var SPOOFED_HEADERS = {
   Referer: "https://music.apple.com/",
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 };
+async function fetchTrackPlayCount(devToken, musicUserToken, isrc) {
+  const url = `${API_BASE}/me/library/songs?filter[isrc]=${encodeURIComponent(isrc)}&fields[library-songs]=playCount&limit=1`;
+  const headers = {
+    Authorization: `Bearer ${devToken}`,
+    "Music-User-Token": musicUserToken,
+    ...SPOOFED_HEADERS
+  };
+  try {
+    const response = await fetch(url, { headers });
+    if (!response.ok) return null;
+    const json2 = await response.json();
+    const count = json2.data?.[0]?.attributes?.playCount;
+    return typeof count === "number" ? count : null;
+  } catch {
+    return null;
+  }
+}
 async function fetchRecentlyPlayed(devToken, musicUserToken) {
   const tracks = [];
   const headers = {
@@ -376,7 +393,7 @@ async function submitBatch(plays, userToken) {
       track_name: p.track,
       release_name: p.album || void 0,
       additional_info: {
-        submission_client: "amusic-scrobbler",
+        submission_client: "aScrobble-scrobbler",
         submission_client_version: "0.2.0",
         music_service: "music.apple.com",
         duration_ms: p.duration_ms || void 0
@@ -426,14 +443,14 @@ async function notifyTokenExpired(webhookUrl) {
   if (!webhookUrl) return;
   await postMessage(
     webhookUrl,
-    "\u{1F534} **amusic**: Apple Music tokens expired (401).\nRe-open the amusic desktop app to re-authenticate with Apple Music."
+    "\u{1F534} **aScrobble**: Apple Music tokens expired (401).\nRe-open the aScrobble desktop app to re-authenticate with Apple Music."
   );
 }
 async function notifyMilestone(webhookUrl, total) {
   if (!webhookUrl) return;
   await postMessage(
     webhookUrl,
-    `\u{1F3B5} **amusic**: hit **${total.toLocaleString()}** total scrobbles`
+    `\u{1F3B5} **aScrobble**: hit **${total.toLocaleString()}** total scrobbles`
   );
 }
 async function notifySummary(webhookUrl, accepted, repeatCount, ignored) {
@@ -518,13 +535,13 @@ var KV_KEY_APPLE_USER_TOKEN = "apple_user_token";
 async function pollAndScrobble(env) {
   const startedAt = Date.now();
   const runTime = new Date(startedAt);
-  const ledger = await loadLedger(env.AMUSIC_STATE);
+  const ledger = await loadLedger(env.ASCROBBLE_STATE);
   const lastRunTime = parseLastRunTime(ledger);
   ledger.stats.total_runs += 1;
   ledger.last_run_iso = runTime.toISOString();
   const [appleDevToken, appleUserToken] = await Promise.all([
-    env.AMUSIC_STATE.get(KV_KEY_APPLE_DEV_TOKEN),
-    env.AMUSIC_STATE.get(KV_KEY_APPLE_USER_TOKEN)
+    env.ASCROBBLE_STATE.get(KV_KEY_APPLE_DEV_TOKEN),
+    env.ASCROBBLE_STATE.get(KV_KEY_APPLE_USER_TOKEN)
   ]);
   if (!appleDevToken || !appleUserToken) {
     const msg = "apple_tokens_missing_in_kv";
@@ -534,7 +551,7 @@ async function pollAndScrobble(env) {
     ledger.stats.total_errors += 1;
     ledger.stats.last_error_iso = runTime.toISOString();
     ledger.stats.last_error_message = msg;
-    await saveLedger(env.AMUSIC_STATE, ledger);
+    await saveLedger(env.ASCROBBLE_STATE, ledger);
     return {
       ok: false,
       detected: 0,
@@ -554,7 +571,7 @@ async function pollAndScrobble(env) {
       ledger.stats.total_errors += 1;
       ledger.stats.last_error_iso = runTime.toISOString();
       ledger.stats.last_error_message = "apple_token_expired";
-      await saveLedger(env.AMUSIC_STATE, ledger);
+      await saveLedger(env.ASCROBBLE_STATE, ledger);
       await notifyTokenExpired(env.NOTIFY_WEBHOOK_URL);
       return {
         ok: false,
@@ -573,7 +590,7 @@ async function pollAndScrobble(env) {
   if (ledger.previous_recent.length === 0) {
     console.log(`First run \u2014 snapshotting ${current.length} tracks without scrobbling`);
     ledger.previous_recent = current;
-    await saveLedger(env.AMUSIC_STATE, ledger);
+    await saveLedger(env.ASCROBBLE_STATE, ledger);
     return {
       ok: true,
       detected: 0,
@@ -585,10 +602,34 @@ async function pollAndScrobble(env) {
     };
   }
   const plays = detectPlays(current, ledger.previous_recent);
+  if (plays.length === 0 && current.length > 0 && ledger.previous_recent.length > 0) {
+    const topTrack = current[0];
+    const prevTopTrack = ledger.previous_recent[0];
+    if (topTrack.id === prevTopTrack.id && topTrack.isrc) {
+      const newCount = await fetchTrackPlayCount(appleDevToken, appleUserToken, topTrack.isrc);
+      if (newCount !== null) {
+        const prevCount = ledger.top_track_id === topTrack.id ? ledger.top_track_play_count : void 0;
+        if (prevCount !== void 0 && newCount > prevCount) {
+          const delta = newCount - prevCount;
+          console.log(
+            `Position-0 probe: play count for "${topTrack.name}" rose by ${delta} \u2014 emitting ${delta} silent repeat(s)`
+          );
+          for (let i = 0; i < delta; i++) {
+            plays.push({ track: topTrack, kind: "repeat" });
+          }
+        }
+        ledger.top_track_id = topTrack.id;
+        ledger.top_track_play_count = newCount;
+      }
+    } else {
+      ledger.top_track_id = current[0]?.id;
+      ledger.top_track_play_count = void 0;
+    }
+  }
   if (plays.length === 0) {
     console.log("No new plays");
     ledger.previous_recent = current;
-    await saveLedger(env.AMUSIC_STATE, ledger);
+    await saveLedger(env.ASCROBBLE_STATE, ledger);
     return {
       ok: true,
       detected: 0,
@@ -613,12 +654,22 @@ async function pollAndScrobble(env) {
     timestamp: p.timestamp,
     duration_ms: p.track.duration_ms
   }));
-  const lfmResult = await scrobbleBatch(
+  let lfmResult = await scrobbleBatch(
     payload,
     env.LASTFM_API_KEY,
     env.LASTFM_SHARED_SECRET,
     env.LASTFM_SESSION_KEY
   );
+  if (lfmResult.errors > 0 && lfmResult.accepted === 0) {
+    console.warn(`Last.fm: all ${lfmResult.errors} tracks failed \u2014 retrying after 1 s`);
+    await new Promise((r) => setTimeout(r, 1e3));
+    lfmResult = await scrobbleBatch(
+      payload,
+      env.LASTFM_API_KEY,
+      env.LASTFM_SHARED_SECRET,
+      env.LASTFM_SESSION_KEY
+    );
+  }
   console.log(
     `Last.fm: ${lfmResult.accepted} accepted, ${lfmResult.ignored} ignored, ${lfmResult.errors} errors`
   );
@@ -645,7 +696,7 @@ async function pollAndScrobble(env) {
   ledger.previous_recent = current;
   ledger.stats.total_scrobbled = newTotal;
   ledger.stats.last_success_iso = runTime.toISOString();
-  await saveLedger(env.AMUSIC_STATE, ledger);
+  await saveLedger(env.ASCROBBLE_STATE, ledger);
   return {
     ok: true,
     detected: plays.length,
@@ -657,7 +708,7 @@ async function pollAndScrobble(env) {
   };
 }
 async function getStatus(env) {
-  return loadLedger(env.AMUSIC_STATE);
+  return loadLedger(env.ASCROBBLE_STATE);
 }
 
 // src/index.ts
@@ -674,7 +725,7 @@ var index_default = {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, x-amusic-auth"
+      "Access-Control-Allow-Headers": "Content-Type, x-ascrobble-auth"
     };
     if (request.method === "OPTIONS") {
       return new Response(null, {
@@ -684,12 +735,12 @@ var index_default = {
     }
     if (url.pathname === "/health") {
       return json(
-        { ok: true, service: "amusic-scrobbler", version: "0.2.0" },
+        { ok: true, service: "aScrobble-scrobbler", version: "0.2.0" },
         200,
         corsHeaders
       );
     }
-    const providedKey = url.searchParams.get("key") ?? request.headers.get("x-amusic-auth") ?? "";
+    const providedKey = url.searchParams.get("key") ?? request.headers.get("x-ascrobble-auth") ?? "";
     if (!env.STATUS_AUTH_KEY) {
       console.error("STATUS_AUTH_KEY not set in worker environment");
       return json(
