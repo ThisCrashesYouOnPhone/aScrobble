@@ -33,37 +33,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "amusic"
-version = "0.2.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "chrono",
- "env_logger",
- "hex",
- "keyring",
- "log",
- "md-5",
- "open 1.7.1",
- "rand 0.8.5",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-oauth",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-single-instance",
- "tauri-plugin-store",
- "tauri-plugin-updater",
- "thiserror 1.0.69",
- "tokio",
- "url",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -135,6 +104,37 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 dependencies = [
  "derive_arbitrary",
+]
+
+[[package]]
+name = "ascrobble"
+version = "1.0.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "env_logger",
+ "hex",
+ "keyring",
+ "log",
+ "md-5",
+ "open 1.7.1",
+ "rand 0.8.5",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-oauth",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-store",
+ "tauri-plugin-updater",
+ "thiserror 1.0.69",
+ "tokio",
+ "url",
 ]
 
 [[package]]
