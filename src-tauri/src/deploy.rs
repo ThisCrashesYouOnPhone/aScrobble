@@ -743,6 +743,12 @@ async fn await_secret_propagation(worker_url: &str, auth_key: &str) -> Result<()
 
     let status_url = format!("{}/status?key={}", worker_url, auth_key);
 
+    // On a fresh deploy the workers.dev route itself needs a few seconds to
+    // become routable after enable_workers_dev_route() is called, so the first
+    // several polls legitimately return 404. We allow up to 10 consecutive 404s
+    // (~20 s) before treating it as a fatal "worker truly doesn't exist" error.
+    let mut consecutive_404s: u32 = 0;
+
     for attempt in 1..=20 {
         match client.get(&status_url).send().await {
             Ok(resp) if resp.status().as_u16() == 200 => {
@@ -753,24 +759,34 @@ async fn await_secret_propagation(worker_url: &str, auth_key: &str) -> Result<()
                 return Ok(());
             }
             Ok(resp) if resp.status().as_u16() == 404 => {
-                // 404 means the worker doesn't exist at all — this is not a
-                // propagation delay, the upload step must have failed silently.
-                return Err(anyhow!(
-                    "Worker returned 404 after deploy — the script upload may have failed. \
-                     Please try redeploying. If this keeps happening, check that your \
-                     Cloudflare API token has Workers:Edit permission."
-                ));
+                consecutive_404s += 1;
+                log::debug!(
+                    "Propagation check {}/20: route not yet routable (404 #{}) — waiting 2s",
+                    attempt,
+                    consecutive_404s
+                );
+                // After 10 consecutive 404s (~20 s) the route should definitely
+                // be active. If it's still 404 at that point, the upload failed.
+                if consecutive_404s >= 10 {
+                    return Err(anyhow!(
+                        "Worker returned 404 after deploy — the script upload may have failed. \
+                         Please try redeploying. If this keeps happening, check that your \
+                         Cloudflare API token has Workers:Edit permission."
+                    ));
+                }
             }
             Ok(resp) => {
-                // 401 = secret not visible yet, keep waiting
+                // Any non-404 response (401, 403, 5xx…) means the route IS
+                // active; reset the 404 streak and keep waiting for the secret.
+                consecutive_404s = 0;
                 log::debug!(
-                    "Secret propagation check {}/20: HTTP {} — waiting 2s",
+                    "Propagation check {}/20: HTTP {} — waiting 2s",
                     attempt,
                     resp.status()
                 );
             }
             Err(e) => {
-                log::debug!("Secret propagation check {}/20 failed: {} — waiting 2s", attempt, e);
+                log::debug!("Propagation check {}/20 failed: {} — waiting 2s", attempt, e);
             }
         }
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
