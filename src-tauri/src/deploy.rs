@@ -68,6 +68,8 @@ pub async fn deploy_full(
     app: &AppHandle,
     account_id: &str,
     poll_interval_minutes: u32,
+    listenbrainz_token: Option<String>,
+    webhook_url: Option<String>,
 ) -> Result<String> {
     if !VALID_INTERVALS.contains(&poll_interval_minutes) {
         return Err(anyhow!(
@@ -108,7 +110,16 @@ pub async fn deploy_full(
     emit(app, 5, "Setting worker secrets");
     let status_auth_key = generate_status_auth_key();
     storage::save_status_auth_key(&status_auth_key)?;
-    set_all_secrets(&client, &token, account_id, &lastfm, &status_auth_key).await?;
+    set_all_secrets(
+        &client,
+        &token,
+        account_id,
+        &lastfm,
+        &status_auth_key,
+        listenbrainz_token.as_deref(),
+        webhook_url.as_deref(),
+    )
+    .await?;
 
     emit(app, 6, "Seeding Apple tokens to KV");
     seed_apple_tokens(&client, &token, account_id, &kv_id, &apple).await?;
@@ -439,6 +450,8 @@ async fn set_all_secrets(
     account_id: &str,
     lastfm: &crate::commands::LastfmSession,
     status_auth_key: &str,
+    listenbrainz_token: Option<&str>,
+    webhook_url: Option<&str>,
 ) -> Result<()> {
     log::info!("Setting all worker secrets");
     set_secret(client, token, account_id, "LASTFM_API_KEY", &lastfm.api_key).await?;
@@ -461,6 +474,16 @@ async fn set_all_secrets(
     // Required by the TS worker to auth the /status and /trigger endpoints.
     // Without this secret the worker returns 401 on all non-health requests.
     set_secret(client, token, account_id, "STATUS_AUTH_KEY", status_auth_key).await?;
+
+    if let Some(lb_token) = listenbrainz_token {
+        log::info!("Setting optional LISTENBRAINZ_TOKEN secret");
+        set_secret(client, token, account_id, "LISTENBRAINZ_TOKEN", lb_token).await?;
+    }
+    if let Some(hook) = webhook_url {
+        log::info!("Setting optional NOTIFY_WEBHOOK_URL secret");
+        set_secret(client, token, account_id, "NOTIFY_WEBHOOK_URL", hook).await?;
+    }
+
     log::info!("All worker secrets have been set successfully");
     Ok(())
 }

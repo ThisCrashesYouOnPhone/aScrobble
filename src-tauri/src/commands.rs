@@ -294,10 +294,18 @@ pub async fn deploy_worker(
     app: AppHandle,
     account_id: String,
     poll_interval_minutes: u32,
+    listenbrainz_token: Option<String>,
+    webhook_url: Option<String>,
 ) -> Result<String, String> {
-    crate::deploy::deploy_full(&app, &account_id, poll_interval_minutes)
-        .await
-        .map_err(err)
+    crate::deploy::deploy_full(
+        &app,
+        &account_id,
+        poll_interval_minutes,
+        listenbrainz_token,
+        webhook_url,
+    )
+    .await
+    .map_err(err)
 }
 
 #[tauri::command]

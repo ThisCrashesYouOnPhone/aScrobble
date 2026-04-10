@@ -33,6 +33,11 @@ export interface LedgerData {
     last_error_iso: string | null;
     last_error_message: string | null;
   };
+  // State for position-0 silent repeat detection.
+  // When the same track sits at position 0 across consecutive polls and
+  // Apple doesn't prepend a new entry, we probe play count to detect replays.
+  top_track_id?: string;
+  top_track_play_count?: number;
 }
 
 const MAX_RECENT_SCROBBLES = 100;

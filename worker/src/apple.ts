@@ -61,6 +61,39 @@ interface AppleApiResponse {
   data?: AppleApiItem[];
 }
 
+/**
+ * Probe the play count for a single track by ISRC via the library songs endpoint.
+ *
+ * Used exclusively for silent at-position-0 repeat detection: when the same
+ * track stays at position 0 across polls and Apple didn't add a new list entry,
+ * a play-count delta reveals undetected repeats.
+ *
+ * Returns null on any error (rate limit, missing ISRC, API hiccup) — callers
+ * treat null as "probe unavailable, skip" so this never blocks normal flow.
+ */
+export async function fetchTrackPlayCount(
+  devToken: string,
+  musicUserToken: string,
+  isrc: string
+): Promise<number | null> {
+  const url = `${API_BASE}/me/library/songs?filter[isrc]=${encodeURIComponent(isrc)}&fields[library-songs]=playCount&limit=1`;
+  const headers = {
+    Authorization: `Bearer ${devToken}`,
+    "Music-User-Token": musicUserToken,
+    ...SPOOFED_HEADERS,
+  };
+
+  try {
+    const response = await fetch(url, { headers });
+    if (!response.ok) return null;
+    const json = (await response.json()) as { data?: Array<{ attributes?: { playCount?: number } }> };
+    const count = json.data?.[0]?.attributes?.playCount;
+    return typeof count === "number" ? count : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchRecentlyPlayed(
   devToken: string,
   musicUserToken: string

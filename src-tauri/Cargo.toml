@@ -22,6 +22,8 @@ tauri-plugin-shell = "2"        # open default browser for OAuth
 tauri-plugin-store = "2"        # non-secret state (last deploy info, ui prefs)
 tauri-plugin-oauth = "2"        # Last.fm loopback OAuth flow
 tauri-plugin-single-instance = "2"  # prevent double-launch
+tauri-plugin-updater = "2"          # in-app update checks
+tauri-plugin-process = "2"          # relaunch after update
 
 # HTTP + serialization
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }

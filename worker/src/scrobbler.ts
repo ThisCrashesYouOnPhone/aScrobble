@@ -9,7 +9,7 @@
  * them without redeploying the worker. See kv_keys.ts for the key names.
  */
 import type { Env, ScrobblePayload } from "./env";
-import { fetchRecentlyPlayed, TokenExpiredError } from "./apple";
+import { fetchRecentlyPlayed, fetchTrackPlayCount, TokenExpiredError } from "./apple";
 import { detectPlays } from "./detect";
 import { assignTimestamps } from "./timestamps";
 import { scrobbleBatch } from "./lastfm";
@@ -121,6 +121,43 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
 
   // 3. Detect what's new since last poll
   const plays = detectPlays(current, ledger.previous_recent);
+
+  // 3a. Position-0 silent repeat probe.
+  //
+  // When position-shift returns k=0 (no new entries detected) AND the same
+  // track is still at position 0, Apple may have overwritten the list entry
+  // in-place instead of prepending a new one. We fire one extra API call to
+  // compare the library play count. If it increased, emit repeat plays.
+  //
+  // Cost: ≤ 1 extra call/poll, and only when the top track hasn't changed.
+  // ISRC is required — tracks without it (rare) silently skip the probe.
+  if (plays.length === 0 && current.length > 0 && ledger.previous_recent.length > 0) {
+    const topTrack = current[0];
+    const prevTopTrack = ledger.previous_recent[0];
+
+    if (topTrack.id === prevTopTrack.id && topTrack.isrc) {
+      const newCount = await fetchTrackPlayCount(appleDevToken, appleUserToken, topTrack.isrc);
+      if (newCount !== null) {
+        const prevCount = ledger.top_track_id === topTrack.id ? ledger.top_track_play_count : undefined;
+        if (prevCount !== undefined && newCount > prevCount) {
+          const delta = newCount - prevCount;
+          console.log(
+            `Position-0 probe: play count for "${topTrack.name}" rose by ${delta} — emitting ${delta} silent repeat(s)`
+          );
+          for (let i = 0; i < delta; i++) {
+            plays.push({ track: topTrack, kind: "repeat" });
+          }
+        }
+        ledger.top_track_id = topTrack.id;
+        ledger.top_track_play_count = newCount;
+      }
+    } else {
+      // Top track changed — reset probe state for the new track
+      ledger.top_track_id = current[0]?.id;
+      ledger.top_track_play_count = undefined;
+    }
+  }
+
   if (plays.length === 0) {
     console.log("No new plays");
     ledger.previous_recent = current;
@@ -156,12 +193,26 @@ export async function pollAndScrobble(env: Env): Promise<RunSummary> {
     duration_ms: p.track.duration_ms,
   }));
 
-  const lfmResult = await scrobbleBatch(
+  let lfmResult = await scrobbleBatch(
     payload,
     env.LASTFM_API_KEY,
     env.LASTFM_SHARED_SECRET,
     env.LASTFM_SESSION_KEY
   );
+
+  // Retry once on a full-batch network failure. Last.fm deduplicates by
+  // (artist, track, timestamp), so a double-submit is silently dropped.
+  if (lfmResult.errors > 0 && lfmResult.accepted === 0) {
+    console.warn(`Last.fm: all ${lfmResult.errors} tracks failed — retrying after 1 s`);
+    await new Promise((r) => setTimeout(r, 1_000));
+    lfmResult = await scrobbleBatch(
+      payload,
+      env.LASTFM_API_KEY,
+      env.LASTFM_SHARED_SECRET,
+      env.LASTFM_SESSION_KEY
+    );
+  }
+
   console.log(
     `Last.fm: ${lfmResult.accepted} accepted, ${lfmResult.ignored} ignored, ${lfmResult.errors} errors`
   );

@@ -34,6 +34,8 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())       // open browser for Last.fm auth
         .plugin(tauri_plugin_store::Builder::new().build()) // non-secret state
         .plugin(tauri_plugin_oauth::init())       // localhost loopback for Last.fm
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
 
         .invoke_handler(tauri::generate_handler![
             // Apple Music

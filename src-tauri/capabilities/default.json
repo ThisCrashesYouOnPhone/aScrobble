@@ -14,6 +14,8 @@
     "shell:allow-open",
     "store:default",
     "oauth:allow-start",
-    "oauth:allow-cancel"
+    "oauth:allow-cancel",
+    "updater:default",
+    "process:allow-relaunch"
   ]
 }

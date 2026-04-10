@@ -91,9 +91,11 @@ export const loadUserSettings = (): Promise<UserSettings> =>
 
 export const deployWorker = (
   accountId: string,
-  pollIntervalMinutes: number
+  pollIntervalMinutes: number,
+  listenbrainzToken?: string,
+  webhookUrl?: string,
 ): Promise<string> =>
-  invoke("deploy_worker", { accountId, pollIntervalMinutes });
+  invoke("deploy_worker", { accountId, pollIntervalMinutes, listenbrainzToken, webhookUrl });
 
 export const deployStatus = (accountId: string): Promise<DeployStatus> =>
   invoke("deploy_status", { accountId });

@@ -28,6 +28,15 @@
       "capabilities": ["default"]
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/OWNER/amusic/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "pubkey": ""
+    }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis", "dmg", "deb", "appimage"],

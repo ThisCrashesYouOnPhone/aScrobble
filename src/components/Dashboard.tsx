@@ -1,5 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-shell";
+import { check as checkUpdate } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import type { StoredCredentials, WorkerLedger, UserSettings } from "../types";
 import {
   getWorkerUrl,
@@ -45,16 +47,12 @@ function relativeTime(iso: string): string {
 
 function daysUntilExpiry(capturedAt: string, actualExpiry?: string | null): number {
   let expiresAt: number;
-  
   if (actualExpiry) {
-    // Use the actual decoded JWT expiry
     expiresAt = new Date(actualExpiry).getTime();
   } else {
-    // Fall back to 180-day estimate
     const captured = new Date(capturedAt).getTime();
     expiresAt = captured + 180 * 24 * 60 * 60 * 1000;
   }
-  
   return Math.max(0, Math.ceil((expiresAt - Date.now()) / (24 * 60 * 60 * 1000)));
 }
 
@@ -175,29 +173,19 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
   const [updatingSettings, setUpdatingSettings] = useState(false);
   const [showAllScrobbles, setShowAllScrobbles] = useState(false);
   const [decodedAppleExpiry, setDecodedAppleExpiry] = useState<string | null>(creds.apple?.expires_at || null);
+  const [updateAvailable, setUpdateAvailable] = useState<{ version: string; body: string | null } | null>(null);
+  const [installing, setInstalling] = useState(false);
 
   // Notify parent of status changes
   useEffect(() => {
     if (!onStatusChange) return;
-    
     const stats = ledger?.stats;
     let color = "gray";
     let text = "Unknown";
-    
-    if (!ledger) {
-      color = "gray";
-      text = "No data";
-    } else if (stats?.last_error_message) {
-      color = "red";
-      text = "Error";
-    } else if (ledger.last_run_iso && Date.now() - new Date(ledger.last_run_iso).getTime() < (settings.poll_interval_minutes + 2) * 60_000) {
-      color = "green";
-      text = "Running";
-    } else {
-      color = "yellow";
-      text = "Stale";
-    }
-    
+    if (!ledger) { color = "gray"; text = "No data"; }
+    else if (stats?.last_error_message) { color = "red"; text = "Error"; }
+    else if (ledger.last_run_iso && Date.now() - new Date(ledger.last_run_iso).getTime() < (settings.poll_interval_minutes + 2) * 60_000) { color = "green"; text = "Running"; }
+    else { color = "yellow"; text = "Stale"; }
     onStatusChange({ color, text });
   }, [ledger, settings.poll_interval_minutes, onStatusChange]);
 
@@ -243,6 +231,13 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
           setLedger(data);
           setStatusError(null);
         }
+
+        // Non-blocking update check — never throws into the main catch
+        checkUpdate().then((update) => {
+          if (update?.available) {
+            setUpdateAvailable({ version: update.version, body: update.body ?? null });
+          }
+        }).catch(() => { /* no update server configured yet, or offline */ });
       } catch (e) {
         const msg = typeof e === "string" ? e : (e as Error).message;
         console.error("Dashboard initialization error:", msg);
@@ -365,6 +360,20 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
     }
   };
 
+  const handleInstallUpdate = async () => {
+    setInstalling(true);
+    try {
+      const update = await checkUpdate();
+      if (update?.available) {
+        await update.downloadAndInstall();
+        await relaunch();
+      }
+    } catch (e) {
+      console.error("Update install failed:", e);
+      setInstalling(false);
+    }
+  };
+
   const openLastfmProfile = () => {
     if (!creds.lastfm) return;
     open(`https://www.last.fm/user/${creds.lastfm.username}`).catch(console.error);
@@ -414,6 +423,28 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
 
   return (
     <div className="dashboard">
+      {/* Update banner */}
+      {updateAvailable && (
+        <div className="card" style={{ border: "1px solid rgba(100,200,255,0.4)", background: "rgba(100,200,255,0.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+            <div>
+              <strong style={{ color: "#64c8ff" }}>Update available — v{updateAvailable.version}</strong>
+              {updateAvailable.body && (
+                <p style={{ margin: "4px 0 0", fontSize: 12, opacity: 0.75 }}>{updateAvailable.body}</p>
+              )}
+            </div>
+            <button
+              className="btn btn-primary"
+              onClick={handleInstallUpdate}
+              disabled={installing}
+              style={{ whiteSpace: "nowrap" }}
+            >
+              {installing ? "Installing..." : "Install & relaunch"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Status Panel */}
       <div className="card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
@@ -639,45 +670,60 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
       )}
 
       {/* Token Expiry Card */}
-      {creds.apple && (
-        <div className="card">
-          <h2>Apple tokens</h2>
-          <div className="summary" style={{ margin: "12px 0" }}>
-            <div className="summary-row">
-              <span className="summary-label">Captured</span>
-              <span>{new Date(creds.apple.captured_at).toLocaleDateString()}</span>
+      {creds.apple && (() => {
+        const days = daysUntilExpiry(creds.apple.captured_at, decodedAppleExpiry);
+        const expiring = days < 30;
+        return (
+          <div className="card" style={expiring ? { border: "1px solid rgba(251,191,36,0.4)" } : undefined}>
+            <h2>Apple tokens</h2>
+            {expiring && (
+              <div className="status status-error" style={{ marginBottom: 12, background: "rgba(251,191,36,0.1)", borderColor: "rgba(251,191,36,0.3)" }}>
+                <span className="status-icon" style={{ color: "#fbbf24" }}>!</span>
+                <div style={{ color: "#fbbf24" }}>
+                  <strong>Tokens expire in {days} day{days !== 1 ? "s" : ""}</strong>
+                  <p style={{ margin: "4px 0 0", fontSize: "0.85em", opacity: 0.85 }}>
+                    Rotate now to avoid scrobbling interruptions.
+                  </p>
+                </div>
+              </div>
+            )}
+            <div className="summary" style={{ margin: "12px 0" }}>
+              <div className="summary-row">
+                <span className="summary-label">Captured</span>
+                <span>{new Date(creds.apple.captured_at).toLocaleDateString()}</span>
+              </div>
+              <div className="summary-row">
+                <span className="summary-label">
+                  {decodedAppleExpiry ? "Token expires" : "Estimated expiry"}
+                </span>
+                <span style={{ color: expiring ? "#fbbf24" : undefined }}>
+                  {daysUntilExpiry(creds.apple.captured_at, decodedAppleExpiry)} days remaining
+                  {decodedAppleExpiry && (
+                    <span className="meta" style={{ marginLeft: 8, fontSize: 12 }}>
+                      (from JWT)
+                    </span>
+                  )}
+                </span>
+              </div>
             </div>
-            <div className="summary-row">
-              <span className="summary-label">
-                {decodedAppleExpiry ? "Token expires" : "Estimated expiry"}
-              </span>
-              <span>
-                {daysUntilExpiry(creds.apple.captured_at, decodedAppleExpiry)} days remaining
-                {decodedAppleExpiry && (
-                  <span className="meta" style={{ marginLeft: 8, fontSize: 12 }}>
-                    (from JWT)
-                  </span>
-                )}
-              </span>
+            <div className="actions" style={{ marginTop: 12 }}>
+              <button
+                className="btn btn-secondary"
+                onClick={handleRotate}
+                disabled={rotating}
+              >
+                {rotating ? "Rotating..." : "Rotate now"}
+              </button>
             </div>
+            {rotateError && (
+              <div className="status status-error" style={{ marginTop: 12 }}>
+                <span className="status-icon">!</span>
+                <div>{rotateError}</div>
+              </div>
+            )}
           </div>
-          <div className="actions" style={{ marginTop: 12 }}>
-            <button
-              className="btn btn-secondary"
-              onClick={handleRotate}
-              disabled={rotating}
-            >
-              {rotating ? "Rotating..." : "Rotate now"}
-            </button>
-          </div>
-          {rotateError && (
-            <div className="status status-error" style={{ marginTop: 12 }}>
-              <span className="status-icon">!</span>
-              <div>{rotateError}</div>
-            </div>
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {/* Settings Card */}
       <div className="card">

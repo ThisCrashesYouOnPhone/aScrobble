@@ -71,6 +71,8 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
   const [workerName, setWorkerName] = useState<string | null>(null);
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState(5);
+  const [listenbrainzToken, setListenbrainzToken] = useState("");
+  const [webhookUrl, setWebhookUrl] = useState("");
 
   const refreshFromStorage = async () => {
     try {
@@ -119,7 +121,12 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
     setProgress(null);
     try {
       await saveUserSettings({ poll_interval_minutes: pollInterval });
-      const result = await deployWorker(effectiveCreds.cloudflare_account_id, pollInterval);
+      const result = await deployWorker(
+        effectiveCreds.cloudflare_account_id,
+        pollInterval,
+        listenbrainzToken.trim() || undefined,
+        webhookUrl.trim() || undefined,
+      );
       setWorkerName(result);
       setPhase("success");
       // Brief pause so the user sees the success state
@@ -161,6 +168,38 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
                 </option>
               ))}
             </select>
+          </label>
+        </div>
+        <div className="form-row">
+          <label>
+            <span>
+              ListenBrainz token{" "}
+              <span style={{ fontWeight: 400, opacity: 0.6, fontSize: "0.85em" }}>(optional)</span>
+            </span>
+            <input
+              type="password"
+              placeholder="Paste your ListenBrainz user token"
+              value={listenbrainzToken}
+              onChange={(e) => setListenbrainzToken(e.target.value)}
+              disabled={phase !== "ready"}
+              style={{ fontFamily: "monospace", fontSize: 13 }}
+            />
+          </label>
+        </div>
+        <div className="form-row">
+          <label>
+            <span>
+              Discord / Slack webhook{" "}
+              <span style={{ fontWeight: 400, opacity: 0.6, fontSize: "0.85em" }}>(optional)</span>
+            </span>
+            <input
+              type="url"
+              placeholder="https://discord.com/api/webhooks/..."
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              disabled={phase !== "ready"}
+              style={{ fontFamily: "monospace", fontSize: 13 }}
+            />
           </label>
         </div>
       </div>
