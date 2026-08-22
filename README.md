@@ -4,7 +4,8 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/ThisCrashesYouOnPhone/aScrobble?style=flat)](https://github.com/ThisCrashesYouOnPhone/aScrobble)
 [![GitHub release](https://img.shields.io/github/v/release/ThisCrashesYouOnPhone/aScrobble)](https://github.com/ThisCrashesYouOnPhone/aScrobble/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/ThisCrashesYouOnPhone/aScrobble/total)](https://github.com/ThisCrashesYouOnPhone/aScrobble/releases)
+[![Downloads](https://img.shields.io/github/downloads/ThisCrashesYouOnPhone/aScrobble/total?color=brightgreen)](https://github.com/ThisCrashesYouOnPhone/aScrobble/releases)
+[![Repo Views](https://komarev.com/ghpvc/?username=ThisCrashesYouOnPhone-aScrobble&label=Repo+Views&color=fc3c44&style=flat)](https://github.com/ThisCrashesYouOnPhone/aScrobble)
 [![License](https://img.shields.io/github/license/ThisCrashesYouOnPhone/aScrobble)](LICENSE)
 
 ---
