@@ -6,3 +6,5 @@
 
 **Latest report PDF**: [report.pdf](https://github.com/ThisCrashesYouOnPhone/aScrobble/raw/github-repo-stats/ThisCrashesYouOnPhone/aScrobble/latest-report/report.pdf)
 
+
+**Latest report HTML via GitHub pages**: [report.html](https://ThisCrashesYouOnPhone.github.io/aScrobble/ThisCrashesYouOnPhone/aScrobble/latest-report/report.html)
