@@ -20,7 +20,13 @@ https://github.com/ThisCrashesYouOnPhone/aScrobble/releases
 
 ## ⭐ Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=ThisCrashesYouOnPhone/aScrobble&type=Date)](https://star-history.com/#ThisCrashesYouOnPhone/aScrobble&Date)
+<a href="https://www.star-history.com/?type=date&repos=ThisCrashesYouOnPhone%2FaScrobble">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ThisCrashesYouOnPhone/aScrobble&type=date&theme=dark&legend=top-left&sealed_token=DXIQQlHpfmA3VYLLbVvHoUMa09Dip0N2KoUgia62EU21dVtQGO8nASZu028r3RAQdJ0LTwqOPla224dO1sO6XJhNOAMEwHBpqoy98C28pMDLpXNyV438wA" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ThisCrashesYouOnPhone/aScrobble&type=date&legend=top-left&sealed_token=DXIQQlHpfmA3VYLLbVvHoUMa09Dip0N2KoUgia62EU21dVtQGO8nASZu028r3RAQdJ0LTwqOPla224dO1sO6XJhNOAMEwHBpqoy98C28pMDLpXNyV438wA" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ThisCrashesYouOnPhone/aScrobble&type=date&legend=top-left&sealed_token=DXIQQlHpfmA3VYLLbVvHoUMa09Dip0N2KoUgia62EU21dVtQGO8nASZu028r3RAQdJ0LTwqOPla224dO1sO6XJhNOAMEwHBpqoy98C28pMDLpXNyV438wA" />
+ </picture>
+</a>
 
 ---
 
