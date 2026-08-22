@@ -1,0 +1,19 @@
+name: Traffic & Repo Analytics
+
+on:
+  schedule:
+    # Run daily at 23:00 UTC
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch and archive traffic stats & generate HTML report
+        uses: jgehrcke/github-repo-stats@v1.4.2
+        with:
+          ghtoken: ${{ secrets.GHRS_GITHUB_API_TOKEN || secrets.GITHUB_TOKEN }}
