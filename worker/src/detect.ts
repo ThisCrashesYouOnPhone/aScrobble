@@ -30,34 +30,88 @@
  */
 import type { AppleTrack, DetectedPlay } from "./env";
 
+export interface DetectionState {
+  stationaryIdle?: boolean;
+  handledCount?: number;
+  position0ElapsedSec?: number;
+}
+
+export interface DetectionResult {
+  plays: DetectedPlay[];
+  newState: DetectionState;
+}
+
 export function detectPlays(
   current: AppleTrack[],
-  previous: AppleTrack[]
-): DetectedPlay[] {
+  previous: AppleTrack[],
+  _elapsedSeconds: number = 180,
+  prevState: DetectionState = {}
+): DetectionResult {
   // First run: return everything in chronological order, all as "new"
   if (previous.length === 0) {
-    return [...current].reverse().map((track) => ({ track, kind: "new" }));
+    const plays = [...current].reverse().map((track) => ({ track, kind: "new" as const }));
+    return {
+      plays,
+      newState: { stationaryIdle: false, handledCount: 1, position0ElapsedSec: 0 }
+    };
   }
 
-  // Strategy 1: position-shift detection
+  // Strategy 1: Position-Shift matching (K > 0)
   const k = findShift(current, previous);
-  if (k !== null) {
+  if (k !== null && k > 0) {
     const newPlays: DetectedPlay[] = [];
     for (let i = 0; i < k; i++) {
-      newPlays.push({ track: current[i], kind: "new" });
+      newPlays.push({ track: current[i], kind: "new" as const });
     }
-    return newPlays.reverse(); // chronological, oldest first
+    return {
+      plays: newPlays.reverse(),
+      newState: { stationaryIdle: false, handledCount: 1, position0ElapsedSec: 0 }
+    };
   }
 
-  // Strategy 2: position-tracking fallback
-  return fallbackDetect(current, previous);
+  // Strategy 2: Top-Rebound & Tail-Shift Recovery (inspired by multi-scrobbler)
+  if (current.length >= 2 && previous.length >= 2 && current[0].id === previous[0].id) {
+    const curTail = current.slice(1);
+    const prevTail = previous.slice(1);
+    const tailShift = findShift(curTail, prevTail);
+
+    if (tailShift !== null && tailShift > 0) {
+      const interimPlays: DetectedPlay[] = [];
+      for (let i = 0; i < tailShift; i++) {
+        interimPlays.push({ track: curTail[i], kind: "top-rebound" as const });
+      }
+      interimPlays.push({ track: current[0], kind: "top-rebound" as const });
+      return {
+        plays: interimPlays.reverse(),
+        newState: { stationaryIdle: false, handledCount: (prevState.handledCount ?? 1) + 1, position0ElapsedSec: 0 }
+      };
+    }
+  }
+
+  // Strategy 3: Stationary Position 0 Guard
+  // When track 0 and the tail have not moved (user is listening mid-song or paused),
+  // return 0 plays. This prevents false double scrobbles when the user listens once and pauses.
+  if (current.length > 0 && previous.length > 0 && current[0].id === previous[0].id) {
+    return {
+      plays: [],
+      newState: {
+        stationaryIdle: true,
+        handledCount: prevState.handledCount ?? 1,
+        position0ElapsedSec: 0,
+      }
+    };
+  }
+
+  // Strategy 4: Fallback Position Tracking
+  const fallback = fallbackDetect(current, previous);
+  return {
+    plays: fallback,
+    newState: { stationaryIdle: false, handledCount: 1, position0ElapsedSec: 0 }
+  };
 }
 
 /**
  * Find the smallest K such that current[K:] equals previous[:len(current)-K]
- * (matched by track id). Returns null if no valid K exists.
- *
- * K must be < len(current) — we never return the trivial all-empty match.
  */
 function findShift(
   current: AppleTrack[],
@@ -68,7 +122,6 @@ function findShift(
 
   for (let k = 0; k < curLen; k++) {
     const suffixLen = curLen - k;
-    // Suffix can't be longer than previous
     if (suffixLen > prevLen) continue;
 
     let match = true;
@@ -85,15 +138,11 @@ function findShift(
 
 /**
  * Position-tracking fallback for when position-shift fails.
- *
- * Used when Apple has reorganized the list (e.g., moved a replayed track
- * up from a middle position to position 0) instead of adding a new entry.
  */
 function fallbackDetect(
   current: AppleTrack[],
   previous: AppleTrack[]
 ): DetectedPlay[] {
-  // Prefer the most recent (smallest index) entry per id when previous has dupes
   const prevIndex = new Map<string, number>();
   for (let i = 0; i < previous.length; i++) {
     if (!prevIndex.has(previous[i].id)) {
@@ -112,7 +161,6 @@ function fallbackDetect(
       continue;
     }
 
-    // How many genuinely new tracks sit above this one in the current list?
     let newAbove = 0;
     for (let i = 0; i < newIdx; i++) {
       if (!prevIndex.has(current[i].id)) newAbove++;
@@ -121,10 +169,9 @@ function fallbackDetect(
     if (newIdx < oldIdx + newAbove) {
       detected.push({ track, kind: "repeat" });
     } else {
-      // Hit the stable tail; everything below is unchanged
       break;
     }
   }
 
-  return detected.reverse(); // chronological, oldest first
+  return detected.reverse();
 }

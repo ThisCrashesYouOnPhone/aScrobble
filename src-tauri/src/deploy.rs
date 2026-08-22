@@ -32,7 +32,7 @@ const WORKER_NAME: &str = "ascrobble-scrobbler";
 const KV_NAMESPACE_TITLE: &str = "ascrobble-state";
 const KV_BINDING_NAME: &str = "ASCROBBLE_STATE";
 const COMPAT_DATE: &str = "2025-04-01";
-const VALID_INTERVALS: &[u32] = &[1, 2, 5, 10, 15, 30];
+const VALID_INTERVALS: &[u32] = &[1, 2, 3, 5, 10, 15, 30];
 const TOTAL_STEPS: u32 = 9;
 
 // KV key names — MUST match worker/src/kv_keys.ts
@@ -90,18 +90,21 @@ pub async fn deploy_full(
 
     let client = build_client();
 
-    // Check if a worker already exists (optional warning before overwriting)
-    if let Ok(exists) = check_worker_exists(&client, &token, account_id).await {
-        if exists {
-            log::info!("Existing worker '{}' found - will be updated", WORKER_NAME);
-            emit(app, 3, "Checking for existing worker (found - will update)");
-            emit(app, 3, "Setting up KV namespace");
-        } else {
-            emit(app, 3, "Setting up KV namespace");
+    // Detect and clean up any duplicate/stale worker scripts before deploying.
+    // This handles cases where a user previously deployed with a different name
+    // or has multiple ascrobble workers cluttering their account.
+    emit(app, 3, "Checking for existing worker(s)");
+    match list_and_cleanup_workers(&client, &token, account_id).await {
+        Ok(cleaned) if cleaned > 0 => {
+            log::info!("Removed {} stale duplicate worker(s) before fresh deploy", cleaned);
         }
-    } else {
-        emit(app, 3, "Setting up KV namespace");
+        Ok(_) => {}
+        Err(e) => {
+            // Non-fatal — log and continue
+            log::warn!("Could not check for duplicate workers: {}", e);
+        }
     }
+
     let kv_id = ensure_kv_namespace(&client, &token, account_id).await?;
 
     emit(app, 4, "Uploading worker script");
@@ -182,18 +185,29 @@ fn build_client() -> reqwest::Client {
         .expect("reqwest client build")
 }
 
-async fn resolve_cloudflare_api_token() -> Result<String> {
+pub(crate) async fn resolve_cloudflare_api_token() -> Result<String> {
     let now = chrono::Utc::now().timestamp();
     if let Some(stored_oauth) = storage::load_cloudflare_oauth()? {
         if now < stored_oauth.expires_at - 60 {
             return Ok(stored_oauth.access_token);
         }
 
-        let refreshed = auth::cloudflare_oauth::refresh_access_token(&stored_oauth.refresh_token)
-            .await
-            .map_err(|e| anyhow!("Cloudflare OAuth token refresh failed: {}", e))?;
-        storage::save_cloudflare_oauth(&refreshed)?;
-        return Ok(refreshed.access_token);
+        match auth::cloudflare_oauth::refresh_access_token(&stored_oauth.refresh_token).await {
+            Ok(refreshed) => {
+                storage::save_cloudflare_oauth(&refreshed)?;
+                return Ok(refreshed.access_token);
+            }
+            Err(e) => {
+                log::warn!("Cloudflare OAuth token refresh failed, clearing stale OAuth session: {}", e);
+                let _ = storage::clear_cloudflare_oauth();
+                if let Ok(Some(api_token)) = storage::load_cloudflare_token() {
+                    return Ok(api_token);
+                }
+                return Err(anyhow!(
+                    "Cloudflare OAuth session expired or revoked (invalid_grant). Please click 'Login with Cloudflare' to sign in again."
+                ));
+            }
+        }
     }
 
     if let Some(api_token) = storage::load_cloudflare_token()? {
@@ -298,8 +312,11 @@ async fn ensure_kv_namespace(
         .map_err(|e| anyhow!("Failed to parse KV namespace list response: {}", e))?;
     let existing = check_with_result(envelope, "list KV namespaces")?;
 
-    if let Some(ns) = existing.iter().find(|n| n.title == KV_NAMESPACE_TITLE) {
-        log::info!("reusing existing KV namespace {}", ns.id);
+    if let Some(ns) = existing.iter().find(|n| {
+        let title_lower = n.title.to_lowercase();
+        title_lower == "ascrobble-state" || title_lower == "ascrobble_state"
+    }) {
+        log::info!("reusing existing KV namespace '{}' ({})", ns.title, ns.id);
         return Ok(ns.id.clone());
     }
 
@@ -325,6 +342,7 @@ async fn ensure_kv_namespace(
 // ---------- Worker script upload ----------
 
 /// Check if a worker script already exists.
+#[allow(dead_code)]
 async fn check_worker_exists(
     client: &reqwest::Client,
     token: &str,
@@ -342,6 +360,70 @@ async fn check_worker_exists(
         .map_err(|e| anyhow!("Failed to check if worker exists: {}", e))?;
 
     Ok(resp.status().is_success())
+}
+
+/// List all workers on the account, find any named `ascrobble-*` other than the
+/// canonical `WORKER_NAME`, and delete them. Returns the number of workers deleted.
+async fn list_and_cleanup_workers(
+    client: &reqwest::Client,
+    token: &str,
+    account_id: &str,
+) -> Result<u32> {
+    #[derive(Deserialize)]
+    struct WorkerScript {
+        id: String,
+    }
+    #[derive(Deserialize)]
+    struct ScriptList {
+        result: Option<Vec<WorkerScript>>,
+    }
+
+    let list_url = format!("{}/accounts/{}/workers/scripts", CF_API, account_id);
+    let resp = client
+        .get(&list_url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .map_err(|e| anyhow!("Failed to list workers: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Ok(0); // non-fatal
+    }
+
+    let body: ScriptList = resp.json().await.unwrap_or(ScriptList { result: None });
+    let scripts = body.result.unwrap_or_default();
+
+    let mut deleted = 0u32;
+    for script in &scripts {
+        let name_lower = script.id.to_lowercase();
+        // Delete any worker that looks like an old ascrobble deployment
+        // but is NOT the current canonical name.
+        if name_lower.contains("ascrobble") && script.id != WORKER_NAME {
+            log::info!("Deleting stale worker '{}' (duplicate of '{}')", script.id, WORKER_NAME);
+            let del_url = format!(
+                "{}/accounts/{}/workers/scripts/{}",
+                CF_API, account_id, script.id
+            );
+            let del_resp = client
+                .delete(&del_url)
+                .bearer_auth(token)
+                .send()
+                .await;
+            match del_resp {
+                Ok(r) if r.status().is_success() => {
+                    log::info!("Deleted stale worker '{}'", script.id);
+                    deleted += 1;
+                }
+                Ok(r) => {
+                    log::warn!("Could not delete '{}': HTTP {}", script.id, r.status());
+                }
+                Err(e) => {
+                    log::warn!("Could not delete '{}': {}", script.id, e);
+                }
+            }
+        }
+    }
+    Ok(deleted)
 }
 
 /// Upload the worker.js script with a KV binding pointing at our namespace.
@@ -569,7 +651,7 @@ async fn seed_apple_tokens(
 
 // ---------- Cron trigger ----------
 
-async fn set_cron_schedule(
+pub(crate) async fn set_cron_schedule(
     client: &reqwest::Client,
     token: &str,
     account_id: &str,
@@ -881,6 +963,27 @@ pub async fn rotate_apple_tokens(
 
     // Write new Apple tokens to KV
     seed_apple_tokens(&client, &token, account_id, &kv_id, apple).await?;
+
+    Ok(())
+}
+
+/// Re-upload the bundled worker script to Cloudflare without wiping secrets.
+pub async fn redeploy_worker_script(app: &AppHandle) -> Result<()> {
+    let token = resolve_cloudflare_api_token().await?;
+    let account_id = storage::load_cloudflare_account_id()?
+        .ok_or_else(|| anyhow!("Cloudflare account ID missing"))?;
+    let script = read_worker_script(app)?;
+
+    let client = build_client();
+    let kv_id = ensure_kv_namespace(&client, &token, &account_id).await?;
+    upload_worker_script(&client, &token, &account_id, &script, &kv_id).await?;
+    enable_workers_dev_route(&client, &token, &account_id).await?;
+
+    let poll_interval = storage::load_user_settings()
+        .map(|s| s.poll_interval_minutes)
+        .unwrap_or(1);
+    let cron_expr = format!("*/{} * * * *", poll_interval);
+    let _ = set_cron_schedule(&client, &token, &account_id, &cron_expr).await;
 
     Ok(())
 }

@@ -20,9 +20,9 @@ main = "src/index.ts"
 compatibility_date = "2025-04-01"
 compatibility_flags = ["nodejs_compat"]
 
-# 5-minute polling. Safe under CF free tier (288 runs/day vs 100k limit).
+# 1-minute polling. Safe under CF free tier.
 [triggers]
-crons = ["*/5 * * * *"]
+crons = ["*/1 * * * *"]
 
 [[kv_namespaces]]
 binding = "ASCROBBLE_STATE"

@@ -37,6 +37,7 @@ export interface AppleTrack {
   id: string;
   name: string;
   artist: string;
+  album_artist?: string;
   album: string;
   duration_ms: number;
   isrc?: string;
@@ -45,7 +46,7 @@ export interface AppleTrack {
 /** A detected play, before or after timestamp assignment. */
 export interface DetectedPlay {
   track: AppleTrack;
-  kind: "new" | "repeat";
+  kind: "new" | "repeat" | "top-rebound" | "time-elapsed-repeat";
   timestamp?: Date; // assigned by timestamps.ts
 }
 

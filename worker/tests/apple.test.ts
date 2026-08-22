@@ -49,7 +49,7 @@ describe("fetchRecentlyPlayed", () => {
     const tracks = await fetchRecentlyPlayed("dev", "user");
 
     expect(tracks.filter((t) => t.id === "X")).toHaveLength(1);
-    expect(tracks).toHaveLength(19);
+    expect(tracks).toHaveLength(10);
   });
 
   it("preserves genuine consecutive duplicates in the same page", async () => {

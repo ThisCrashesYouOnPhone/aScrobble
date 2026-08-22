@@ -16,7 +16,7 @@
  * from reading or triggering the user's scrobbler.
  */
 import type { Env } from "./env";
-import { pollAndScrobble, getStatus } from "./scrobbler";
+import { pollAndScrobble, getStatus, resetLedgerStats, updateTokens, clearCache } from "./scrobbler";
 
 export default {
   async scheduled(
@@ -34,7 +34,7 @@ export default {
   async fetch(
     request: Request,
     env: Env,
-    ctx: ExecutionContext
+    _ctx: ExecutionContext
   ): Promise<Response> {
     const url = new URL(request.url);
 
@@ -56,7 +56,7 @@ export default {
     // Lightweight health check — always open, no auth needed
     if (url.pathname === "/health") {
       return json(
-        { ok: true, service: "aScrobble-scrobbler", version: "0.2.0" },
+        { ok: true, service: "aScrobble-scrobbler", version: "0.3.0" },
         200,
         corsHeaders
       );
@@ -92,20 +92,63 @@ export default {
       }
     }
 
+    if (url.pathname === "/reset-stats" && request.method === "POST") {
+      try {
+        const ledger = await resetLedgerStats(env);
+        return json(ledger, 200, corsHeaders);
+      } catch (err) {
+        console.error("/reset-stats failed:", err);
+        return json({ error: "failed to reset stats" }, 500, corsHeaders);
+      }
+    }
+
+    if (url.pathname === "/clear-cache" && request.method === "POST") {
+      try {
+        let opts: Record<string, boolean> = {};
+        if (request.headers.get("Content-Type")?.includes("application/json")) {
+          opts = (await request.json().catch(() => ({}))) as Record<string, boolean>;
+        }
+        const res = await clearCache(env, opts);
+        return json(res, 200, corsHeaders);
+      } catch (err) {
+        console.error("/clear-cache failed:", err);
+        return json({ error: "failed to clear cache" }, 500, corsHeaders);
+      }
+    }
+
+    if (url.pathname === "/update-tokens" && request.method === "POST") {
+      try {
+        const body = (await request.json().catch(() => ({}))) as {
+          apple_dev_token?: string;
+          apple_user_token?: string;
+        };
+        const res = await updateTokens(
+          env,
+          body.apple_dev_token,
+          body.apple_user_token
+        );
+        return json(res, 200, corsHeaders);
+      } catch (err) {
+        console.error("/update-tokens failed:", err);
+        return json({ error: "failed to update tokens" }, 500, corsHeaders);
+      }
+    }
+
     if (url.pathname === "/trigger" && request.method === "POST") {
-      // Fire-and-forget so the desktop app gets a fast response,
-      // but use waitUntil so the Worker actually completes the poll.
-      const runPromise = pollAndScrobble(env).catch((err) => {
+      try {
+        await pollAndScrobble(env, true);
+        const ledger = await getStatus(env);
+        return json({ ok: true, triggered: true, ledger }, 200, corsHeaders);
+      } catch (err) {
         console.error("/trigger failed:", err);
-        return null;
-      });
-      ctx.waitUntil(runPromise);
-      return json({ ok: true, triggered: true }, 200, corsHeaders);
+        return json({ error: String(err) }, 500, corsHeaders);
+      }
     }
 
     return json({ error: "not found" }, 404, corsHeaders);
   },
 } satisfies ExportedHandler<Env>;
+
 
 function json(
   data: unknown,
@@ -116,7 +159,9 @@ function json(
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
       ...corsHeaders,
     },
   });

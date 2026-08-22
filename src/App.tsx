@@ -140,6 +140,16 @@ export default function App() {
   const [showReconfigureWarning, setShowReconfigureWarning] = useState(false);
 
   useEffect(() => {
+    // Apply saved UI theme & accent immediately on app boot
+    const saved = localStorage.getItem("ascrobble_settings") || localStorage.getItem("ascrobble-settings");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.theme) document.documentElement.setAttribute("data-theme", parsed.theme);
+        if (parsed.accentColor) document.documentElement.setAttribute("data-accent", parsed.accentColor);
+      } catch {}
+    }
+
     storageGetAll()
       .then((c) => {
         setCreds(c);
@@ -161,19 +171,23 @@ export default function App() {
       .finally(() => setLoading(false));
   }, []);
 
-  const refreshCreds = async () => {
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      const next = await storageGetAll();
-      setCreds(next);
-      setSyncError(null);
-      return true;
-    } catch (e) {
-      console.error("refresh failed:", e);
-      const msg = typeof e === "string" ? e : (e as Error).message;
-      setSyncError(msg ?? "Failed to refresh credentials from keychain");
-      return false;
+  const refreshCreds = async (): Promise<boolean> => {
+    let lastErr: unknown = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 150));
+        const next = await storageGetAll();
+        setCreds(next);
+        setSyncError(null);
+        return true;
+      } catch (e) {
+        lastErr = e;
+      }
     }
+    console.error("refresh failed after retries:", lastErr);
+    const msg = typeof lastErr === "string" ? lastErr : (lastErr as Error)?.message;
+    setSyncError(msg ?? "Failed to refresh credentials from keychain");
+    return false;
   };
 
   const isWizard = ["welcome", "apple", "lastfm", "cloudflare", "deploy"].includes(step);

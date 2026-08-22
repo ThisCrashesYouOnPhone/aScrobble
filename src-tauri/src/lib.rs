@@ -75,6 +75,13 @@ pub fn run() {
             
             // Debug
             commands::debug_export_apple_tokens,
+            commands::open_data_folder,
+            commands::get_app_logs,
+            commands::save_log_file,
+            commands::export_full_diagnostics,
+            commands::update_poll_interval,
+            commands::reset_worker_stats,
+            commands::redeploy_worker,
         ])
         .run(tauri::generate_context!())
         .expect("error while running aScrobble");

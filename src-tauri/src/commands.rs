@@ -90,7 +90,7 @@ pub struct UserSettings {
 impl Default for UserSettings {
     fn default() -> Self {
         Self {
-            poll_interval_minutes: 5,
+            poll_interval_minutes: 1,
         }
     }
 }
@@ -121,11 +121,21 @@ pub struct LedgerStats {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogEntry {
+    pub timestamp_iso: String,
+    pub step: String,
+    pub details: Option<String>,
+    pub level: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerLedger {
     pub version: u32,
     pub last_run_iso: Option<String>,
+    pub circuit_open_until_iso: Option<String>,
     pub recent_scrobbles: Vec<RecentScrobble>,
     pub stats: LedgerStats,
+    pub log_entries: Option<Vec<LogEntry>>,
 }
 
 
@@ -350,10 +360,13 @@ pub async fn get_worker_status() -> Result<WorkerLedger, String> {
         return Err("Worker not deployed or missing status auth key".to_string());
     }
 
-    let ledger_url = format!("{}/status?key={}", worker_url.unwrap(), auth_key.unwrap());
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let ledger_url = format!("{}/status?key={}&_t={}", worker_url.unwrap(), auth_key.unwrap(), now_ms);
     let resp = reqwest::Client::new()
         .get(&ledger_url)
-        .timeout(std::time::Duration::from_secs(5))
+        .header("Cache-Control", "no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+        .timeout(std::time::Duration::from_secs(20))
         .send()
         .await
         .map_err(|e| format!("Failed to fetch worker ledger: {}", e))?;
@@ -421,3 +434,164 @@ pub async fn debug_export_apple_tokens() -> Result<serde_json::Value, String> {
         None => Ok(serde_json::json!({"tokens_present": false}))
     }
 }
+
+#[tauri::command]
+pub async fn open_data_folder(app: AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let path = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    open::that(&path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_poll_interval(minutes: u32) -> Result<(), String> {
+    let settings = UserSettings { poll_interval_minutes: minutes };
+    storage::save_user_settings(&settings).map_err(err)?;
+
+    if let Ok(token) = crate::deploy::resolve_cloudflare_api_token().await {
+        if let Ok(Some(account_id)) = storage::load_cloudflare_account_id() {
+            let cron_expr = format!("*/{} * * * *", minutes);
+            let client = reqwest::Client::new();
+            if let Err(e) = crate::deploy::set_cron_schedule(&client, &token, &account_id, &cron_expr).await {
+                log::warn!("Failed to set Cloudflare cron schedule: {}", e);
+            }
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reset_worker_stats() -> Result<WorkerLedger, String> {
+    let worker_url = storage::load_worker_url().map_err(err)?;
+    let auth_key = storage::load_status_auth_key().map_err(err)?;
+
+    if worker_url.is_none() || auth_key.is_none() {
+        return Err("Worker not deployed or missing status auth key".to_string());
+    }
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let url = format!("{}/reset-stats?key={}&_t={}", worker_url.unwrap(), auth_key.unwrap(), now_ms);
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .header("Cache-Control", "no-cache, no-store, must-revalidate")
+        .header("Pragma", "no-cache")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to reset worker stats: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Reset stats HTTP {}: {}", resp.status(), resp.text().await.unwrap_or_default()));
+    }
+
+    let ledger = resp.json::<WorkerLedger>().await
+        .map_err(|e| format!("Failed to parse worker ledger JSON: {}", e))?;
+
+    Ok(ledger)
+}
+
+#[tauri::command]
+pub async fn redeploy_worker(app: AppHandle) -> Result<(), String> {
+    crate::deploy::redeploy_worker_script(&app)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+pub async fn get_app_logs(app: AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let log_path = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ascrobble.log");
+    if log_path.exists() {
+        std::fs::read_to_string(&log_path).map_err(|e| e.to_string())
+    } else {
+        Ok("Log file initialized. No previous error logs.".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn export_full_diagnostics(app: AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let mut out = String::new();
+    let now = chrono::Utc::now().to_rfc3339();
+
+    out.push_str("=====================================================\n");
+    out.push_str("          aScrobble Diagnostic System Log           \n");
+    out.push_str(&format!("  Export Timestamp: {}\n", now));
+    out.push_str("=====================================================\n\n");
+
+    // 1. System & App settings
+    out.push_str("[1] Desktop App State & Settings:\n");
+    if let Ok(settings) = storage::load_user_settings() {
+        out.push_str(&format!("  - Poll Interval: {} min\n", settings.poll_interval_minutes));
+    }
+    if let Ok(url) = storage::load_worker_url() {
+        out.push_str(&format!("  - Deployed Worker URL: {}\n", url.unwrap_or_else(|| "None".to_string())));
+    }
+    out.push_str("\n");
+
+    // 2. Fetch live Cloudflare Worker status & step logs
+    out.push_str("[2] Live Cloudflare Worker Ledger & Step Logs:\n");
+    match get_worker_status().await {
+        Ok(ledger) => {
+            out.push_str(&format!("  - Ledger Version: {}\n", ledger.version));
+            out.push_str(&format!("  - Last Worker Run ISO: {}\n", ledger.last_run_iso.unwrap_or_else(|| "Never".to_string())));
+            out.push_str(&format!("  - Total Scrobbled: {}\n", ledger.stats.total_scrobbled));
+            out.push_str(&format!("  - Total Runs: {}\n", ledger.stats.total_runs));
+            out.push_str(&format!("  - Total Errors: {}\n", ledger.stats.total_errors));
+            if let Some(err_msg) = &ledger.stats.last_error_message {
+                out.push_str(&format!("  - Last Error Message: {}\n", err_msg));
+            }
+            if let Some(until) = &ledger.circuit_open_until_iso {
+                out.push_str(&format!("  - Circuit Open Until: {}\n", until));
+            }
+            
+            out.push_str("\n--- Cloudflare Worker Verbose Step Execution Log ---\n");
+            if let Some(entries) = &ledger.log_entries {
+                for (i, entry) in entries.iter().enumerate() {
+                    let lvl = entry.level.as_deref().unwrap_or("info").to_uppercase();
+                    let dt = &entry.timestamp_iso;
+                    let details = entry.details.as_deref().unwrap_or("");
+                    out.push_str(&format!(" {:02}. [{}] [{}] {} {}\n", i + 1, dt, lvl, entry.step, details));
+                }
+            } else {
+                out.push_str("  No Cloudflare step entries recorded yet.\n");
+            }
+        }
+        Err(e) => {
+            out.push_str(&format!("  FAILED to query Cloudflare status: {}\n", e));
+        }
+    }
+
+    // 3. Desktop log file contents
+    out.push_str("\n[3] Desktop App Log File:\n");
+    let log_path = app.path().app_data_dir().map_err(|e| e.to_string())?.join("ascrobble.log");
+    if log_path.exists() {
+        if let Ok(app_log) = std::fs::read_to_string(&log_path) {
+            out.push_str(&app_log);
+        }
+    } else {
+        out.push_str("  No desktop log file present.\n");
+    }
+
+    // Save to AppData file
+    let path = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    let file_path = path.join("ascrobble-diagnostics.log");
+    std::fs::write(&file_path, &out).map_err(|e| e.to_string())?;
+
+    Ok(out)
+}
+
+#[tauri::command]
+pub async fn save_log_file(app: AppHandle, content: String) -> Result<String, String> {
+    use tauri::Manager;
+    let path = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    let file_path = path.join("ascrobble-diagnostics.log");
+    std::fs::write(&file_path, content).map_err(|e| e.to_string())?;
+    Ok(file_path.to_string_lossy().to_string())
+}
+
+
+

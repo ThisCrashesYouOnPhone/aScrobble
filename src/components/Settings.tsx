@@ -8,29 +8,51 @@ interface SettingsProps {
 export function Settings({ onBack }: SettingsProps) {
   const [theme, setTheme] = useState<"dark" | "oled" | "auto">("dark");
   const [accentColor, setAccentColor] = useState<"brand" | "spotify" | "blue">("brand");
-  const [pollingInterval, setPollingInterval] = useState(5);
+  const [pollingInterval, setPollingInterval] = useState(1);
   const [notifications, setNotifications] = useState(true);
   const [minimizeToTray, setMinimizeToTray] = useState(true);
   const [logsLoading, setLogsLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [apiTestLoading, setApiTestLoading] = useState(false);
   const [apiTestResult, setApiTestResult] = useState<string | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
 
-  // Load settings from storage
-  useEffect(() => {
-    const saved = localStorage.getItem("ascrobble-settings");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setTheme(parsed.theme || "dark");
-      setAccentColor(parsed.accentColor || "brand");
-      setPollingInterval(parsed.pollingInterval || 5);
-      setNotifications(parsed.notifications !== false);
-      setMinimizeToTray(parsed.minimizeToTray !== false);
-      
-      // Apply loaded theme immediately
-      document.documentElement.setAttribute("data-theme", parsed.theme || "dark");
-      document.documentElement.setAttribute("data-accent", parsed.accentColor || "brand");
+  const syncWorkerCode = async () => {
+    setSyncLoading(true);
+    try {
+      await invoke("redeploy_worker");
+      setToast("Worker code synced to Cloudflare ✓");
+      setTimeout(() => setToast(null), 3000);
+    } catch (e) {
+      alert(`Worker sync failed: ${e}`);
+    } finally {
+      setSyncLoading(false);
     }
+  };
+
+  // Load settings — always apply theme immediately on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("ascrobble_settings") || localStorage.getItem("ascrobble-settings");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setTheme(parsed.theme || "dark");
+        setAccentColor(parsed.accentColor || "brand");
+        setNotifications(parsed.notifications !== false);
+        setMinimizeToTray(parsed.minimizeToTray !== false);
+        // Apply theme now (in case App.tsx didn't on load)
+        document.documentElement.setAttribute("data-theme", parsed.theme || "dark");
+        document.documentElement.setAttribute("data-accent", parsed.accentColor || "brand");
+      } catch {}
+    } else {
+      // Apply defaults
+      document.documentElement.setAttribute("data-theme", "dark");
+      document.documentElement.setAttribute("data-accent", "brand");
+    }
+    // Load poll interval from Tauri keyring (single source of truth)
+    invoke<{ poll_interval_minutes: number }>("load_user_settings")
+      .then((s) => setPollingInterval(s.poll_interval_minutes || 1))
+      .catch(() => {});
   }, []);
 
   // Auto-save and show toast
@@ -44,13 +66,18 @@ export function Settings({ onBack }: SettingsProps) {
       [key]: value,
     };
     
-    localStorage.setItem("ascrobble-settings", JSON.stringify(newSettings));
+    localStorage.setItem("ascrobble_settings", JSON.stringify(newSettings));
     
     if (key === 'theme') {
       document.documentElement.setAttribute("data-theme", value as string);
     }
     if (key === 'accentColor') {
       document.documentElement.setAttribute("data-accent", value as string);
+    }
+
+    // Sync poll interval to Tauri keyring so Dashboard reads the same value
+    if (key === 'pollingInterval') {
+      invoke("save_user_settings", { settings: { poll_interval_minutes: value as number } }).catch(console.error);
     }
     
     setToast("Setting saved ✓");
@@ -65,28 +92,28 @@ type SettingsState = {
   minimizeToTray: boolean;
 };
 
-  // Download logs (placeholder - would need Rust backend)
+  // Download diagnostic logs
   const downloadLogs = async () => {
     setLogsLoading(true);
     try {
-      // This would call a Rust command to get logs
-      const logContent = [
-        "[2024-01-15 10:30:15] Worker started",
-        "[2024-01-15 10:30:20] Apple Music API: 200 OK",
-        "[2024-01-15 10:30:21] Detected 3 new plays",
-        "[2024-01-15 10:30:22] Last.fm: 3 scrobbles accepted",
-        "[2024-01-15 10:35:15] Poll completed - no new plays",
-      ].join("\n");
-      
-      const blob = new Blob([logContent], { type: "text/plain" });
+      const fullLog = await invoke<string>("export_full_diagnostics");
+
+      // Also trigger browser/file download for convenience
+      const blob = new Blob([fullLog], { type: "text/plain" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `ascrobble-logs-${new Date().toISOString().split("T")[0]}.txt`;
+      a.download = `ascrobble-diagnostics-${new Date().toISOString().split("T")[0]}.log`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
+
+      setToast("Diagnostic logs exported & saved to data folder ✓");
+      setTimeout(() => setToast(null), 3500);
     } catch (e) {
       console.error("Failed to download logs:", e);
+      alert(`Export logs failed: ${e}`);
     } finally {
       setLogsLoading(false);
     }
@@ -95,9 +122,8 @@ type SettingsState = {
   const openDataFolder = async () => {
     try {
       await invoke("open_data_folder");
-    } catch {
-      // Fallback - show path
-      alert("Data folder: %APPDATA%/aScrobble");
+    } catch (e) {
+      alert(`Could not open data folder: ${e}`);
     }
   };
 
@@ -258,7 +284,7 @@ type SettingsState = {
           <div className="settings-row">
             <div className="settings-info">
               <label>Polling Interval</label>
-              <p>How often to check Apple Music for new plays. Shorter intervals catch tracks faster but use more API calls.</p>
+              <p>How often the Cloudflare worker checks Apple Music for new plays. 1 minute is recommended.</p>
             </div>
             <div className="settings-control">
               <select 
@@ -269,11 +295,11 @@ type SettingsState = {
                   updateSetting('pollingInterval', value);
                 }}
               >
-                <option value={1}>1 minute</option>
+                <option value={1}>1 minute (recommended)</option>
                 <option value={2}>2 minutes</option>
-                <option value={5}>5 minutes (recommended)</option>
+                <option value={3}>3 minutes</option>
+                <option value={5}>5 minutes</option>
                 <option value={10}>10 minutes</option>
-                <option value={15}>15 minutes</option>
               </select>
             </div>
           </div>
@@ -291,6 +317,14 @@ type SettingsState = {
                   disabled={logsLoading}
                 >
                   {logsLoading ? "⏳ Exporting..." : "📥 Download Logs"}
+                </button>
+                <button 
+                  className="btn btn-secondary btn-sm" 
+                  onClick={syncWorkerCode}
+                  disabled={syncLoading}
+                  title="Push latest worker bundle to Cloudflare"
+                >
+                  {syncLoading ? "⏳ Syncing..." : "⚡ Sync Worker Code"}
                 </button>
                 <button 
                   className="btn btn-ghost btn-sm" 
@@ -323,12 +357,6 @@ type SettingsState = {
               )}
             </div>
           </div>
-        </div>
-
-        <div className="actions" style={{ marginTop: 'var(--space-xl)', justifyContent: 'flex-end' }}>
-          <button className="btn btn-primary" onClick={onBack}>
-            Done
-          </button>
         </div>
       </div>
     </div>
