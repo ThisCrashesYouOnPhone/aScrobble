@@ -17,7 +17,7 @@ describe("detectPlays", () => {
     const previous = [track("A"), track("B"), track("C")];
     const current = [track("X"), track("X"), ...previous];
 
-    const plays = detectPlays(current, previous);
+    const { plays } = detectPlays(current, previous);
 
     expect(plays).toHaveLength(2);
     expect(plays.map((p) => p.kind)).toEqual(["new", "new"]);
@@ -28,7 +28,7 @@ describe("detectPlays", () => {
     const previous = [track("A"), track("B"), track("C")];
     const current = [track("X"), track("X"), track("X"), ...previous];
 
-    const plays = detectPlays(current, previous);
+    const { plays } = detectPlays(current, previous);
 
     expect(plays).toHaveLength(3);
     expect(plays.map((p) => p.kind)).toEqual(["new", "new", "new"]);
@@ -39,7 +39,7 @@ describe("detectPlays", () => {
     const previous = [track("A"), track("B"), track("C")];
     const current = [track("X"), track("X"), track("D"), ...previous];
 
-    const plays = detectPlays(current, previous);
+    const { plays } = detectPlays(current, previous);
 
     expect(plays).toHaveLength(3);
     expect(plays.map((p) => `${p.kind} ${p.track.id}`)).toEqual([
@@ -53,7 +53,7 @@ describe("detectPlays", () => {
     const previous = [track("X"), track("A"), track("B")];
     const current = [track("A"), track("X"), track("B")];
 
-    const plays = detectPlays(current, previous);
+    const { plays } = detectPlays(current, previous);
 
     expect(plays).toHaveLength(1);
     expect(plays[0].kind).toBe("repeat");
@@ -64,7 +64,7 @@ describe("detectPlays", () => {
     const previous = [track("A"), track("B"), track("C")];
     const current = [track("A"), track("B"), track("C")];
 
-    const plays = detectPlays(current, previous);
+    const { plays } = detectPlays(current, previous);
 
     expect(plays).toEqual([]);
   });
@@ -73,7 +73,7 @@ describe("detectPlays", () => {
     const previous: AppleTrack[] = [];
     const current = [track("A"), track("B"), track("C")];
 
-    const plays = detectPlays(current, previous);
+    const { plays } = detectPlays(current, previous);
 
     expect(plays).toHaveLength(3);
     expect(plays.map((p) => p.kind)).toEqual(["new", "new", "new"]);

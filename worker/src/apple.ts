@@ -24,8 +24,8 @@
 import type { AppleTrack } from "./env";
 
 const API_BASE = "https://api.music.apple.com/v1";
-const PAGE_SIZE = 10;
-const MAX_OFFSET = 40; // offsets 0,10,20,30,40 → up to 50 tracks
+const PAGE_SIZE = 30;
+const MAX_OFFSET = 90; // up to 120 tracks total (0, 30, 60, 90)
 
 export class TokenExpiredError extends Error {
   constructor() {
@@ -51,6 +51,7 @@ interface AppleApiItem {
   attributes?: {
     name?: string;
     artistName?: string;
+    albumArtistName?: string;
     albumName?: string;
     durationInMillis?: number;
     isrc?: string;
@@ -61,15 +62,14 @@ interface AppleApiResponse {
   data?: AppleApiItem[];
 }
 
+/** Normalize album name by stripping trailing ' - EP' or ' - Single' suffixes. */
+function normalizeAlbumName(rawAlbum: string): string {
+  if (!rawAlbum) return "";
+  return rawAlbum.replace(/ - (EP|Single)$/i, "").trim();
+}
+
 /**
  * Probe the play count for a single track by ISRC via the library songs endpoint.
- *
- * Used exclusively for silent at-position-0 repeat detection: when the same
- * track stays at position 0 across polls and Apple didn't add a new list entry,
- * a play-count delta reveals undetected repeats.
- *
- * Returns null on any error (rate limit, missing ISRC, API hiccup) — callers
- * treat null as "probe unavailable, skip" so this never blocks normal flow.
  */
 export async function fetchTrackPlayCount(
   devToken: string,
@@ -134,25 +134,21 @@ export async function fetchRecentlyPlayed(
     for (const item of items) {
       if (!item.id) continue;
       const attrs = item.attributes ?? {};
+      const rawAlbum = attrs.albumName ?? "";
       tracks.push({
         id: item.id,
         name: attrs.name ?? "",
         artist: attrs.artistName ?? "",
-        album: attrs.albumName ?? "",
+        album_artist: attrs.albumArtistName ?? attrs.artistName ?? "",
+        album: normalizeAlbumName(rawAlbum),
         duration_ms: attrs.durationInMillis ?? 180_000,
         isrc: attrs.isrc,
       });
     }
 
-    if (items.length < PAGE_SIZE) break; // last page
+    if (items.length < PAGE_SIZE) break; // single page (up to 30 items)
   }
 
-  // Page-boundary race protection: when paginating sequentially, a play
-  // happening between requests can shift the list and cause one entry to
-  // appear at the END of page N and the START of page N+1. We detect this
-  // narrowly: if entry i and entry i-1 share an id AND fall on a 10-track
-  // page boundary, drop entry i. This catches the race without affecting
-  // genuine consecutive duplicate plays (which never sit on a boundary).
   const deduped: AppleTrack[] = [];
   for (let i = 0; i < tracks.length; i++) {
     if (i > 0 && i % PAGE_SIZE === 0 && tracks[i - 1].id === tracks[i].id) {

@@ -5,9 +5,10 @@ import type { StoredCredentials } from "../types";
 import { deployWorker, storageGetAll, loadUserSettings, saveUserSettings } from "../lib/tauri";
 
 const INTERVAL_OPTIONS = [
-  { value: 1, label: "1 minute (most responsive, more API calls)" },
+  { value: 1, label: "1 minute (recommended, most responsive)" },
   { value: 2, label: "2 minutes" },
-  { value: 5, label: "5 minutes (recommended)" },
+  { value: 3, label: "3 minutes" },
+  { value: 5, label: "5 minutes" },
   { value: 10, label: "10 minutes" },
   { value: 15, label: "15 minutes" },
   { value: 30, label: "30 minutes" },
@@ -70,7 +71,7 @@ export function DeployStep({ creds, onComplete, onBack }: DeployStepProps) {
   const [error, setError] = useState<string | null>(null);
   const [workerName, setWorkerName] = useState<string | null>(null);
   const [syncInfo, setSyncInfo] = useState<string | null>(null);
-  const [pollInterval, setPollInterval] = useState(5);
+  const [pollInterval, setPollInterval] = useState(1);
   const [listenbrainzToken, setListenbrainzToken] = useState("");
   const [webhookUrl, setWebhookUrl] = useState("");
 

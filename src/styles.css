@@ -1989,3 +1989,15 @@ code {
   }
 }
 
+/* ===== Worker Card Hover Effects ===== */
+.worker-card {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease !important;
+}
+
+.worker-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), 0 0 24px rgba(255, 255, 255, 0.03) !important;
+}
+
+

@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import type { CloudflareAccount, CloudflareOauth } from "../types";
 import {
   cloudflareListAccounts,
   cloudflareOauthLogin,
+  cloudflareOauthLogout,
   cloudflareSaveAccountId,
   cloudflareSaveCredentials,
   cloudflareTemplateUrl,
@@ -19,6 +20,7 @@ interface CloudflareStepProps {
 }
 
 type ManualPhase = "input" | "validating" | "valid" | "saving";
+type SessionState = "checking" | "valid" | "expired" | "none";
 
 export function CloudflareStep({
   existingToken,
@@ -27,14 +29,13 @@ export function CloudflareStep({
   onComplete,
   onBack,
 }: CloudflareStepProps) {
+  const [sessionState, setSessionState] = useState<SessionState>(
+    existingOauth ? "checking" : existingToken ? "valid" : "none"
+  );
   const [oauthBusy, setOauthBusy] = useState(false);
-  const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [oauthError, setOauthError] = useState<string | null>(null);
   const [oauthAccounts, setOauthAccounts] = useState<CloudflareAccount[]>([]);
   const [oauthSelection, setOauthSelection] = useState(existingAccountId ?? "");
-  const [existingOauthLoaded, setExistingOauthLoaded] = useState(
-    existingOauth && existingAccountId ? true : false
-  );
+  const [oauthError, setOauthError] = useState<string | null>(null);
 
   const [token, setToken] = useState(existingToken ?? "");
   const [manualPhase, setManualPhase] = useState<ManualPhase>("input");
@@ -42,64 +43,42 @@ export function CloudflareStep({
   const [manualSelection, setManualSelection] = useState(existingAccountId ?? "");
   const [manualError, setManualError] = useState<string | null>(null);
 
+  const sessionCheckDone = useRef(false);
   const manualBusy = manualPhase === "validating" || manualPhase === "saving";
-  const busy = oauthBusy || manualBusy || loadingAccounts;
+  const busy = oauthBusy || manualBusy;
 
-  const [accountsLoadError, setAccountsLoadError] = useState<string | null>(null);
-
-  // Initialize: if we have existing OAuth + account ID, mark as loaded immediately
-  // so the Continue button shows right away, then try to load accounts in background
+  // On mount: validate existing OAuth session proactively
   useEffect(() => {
-    if (existingOauth && existingAccountId) {
-      setExistingOauthLoaded(true);
-      setOauthSelection(existingAccountId);
-    }
-  }, [existingOauth, existingAccountId]);
+    if (sessionCheckDone.current) return;
+    sessionCheckDone.current = true;
 
-  // Safety timeout: clear loading state after 5 seconds max to prevent indefinite loading
-  useEffect(() => {
-    if (loadingAccounts) {
-      const timeout = setTimeout(() => {
-        setLoadingAccounts(false);
-      }, 5000);
-      return () => clearTimeout(timeout);
+    if (!existingOauth || !existingAccountId) {
+      setSessionState(existingToken ? "valid" : "none");
+      return;
     }
-  }, [loadingAccounts]);
 
-  // Background load of accounts (for the dropdown if multiple accounts exist)
-  useEffect(() => {
-    if (
-      existingOauth &&
-      existingAccountId &&
-      oauthAccounts.length === 0 &&
-      !loadingAccounts &&
-      !oauthBusy
-    ) {
-      setLoadingAccounts(true);
-      setAccountsLoadError(null);
-      cloudflareListAccounts(existingOauth.access_token)
-        .then((accounts) => {
-          setOauthAccounts(accounts);
-          if (accounts.length > 0 && !oauthSelection) {
-            setOauthSelection(existingAccountId);
-          }
-        })
-        .catch((e) => {
-          const msg = typeof e === "string" ? e : (e as Error).message;
-          console.warn("Could not load existing OAuth accounts:", e);
-          setAccountsLoadError(msg ?? "Failed to load Cloudflare accounts");
-          // Don't disable the continue button - user can still proceed
-        })
-        .finally(() => setLoadingAccounts(false));
-    }
-  }, [existingOauth, existingAccountId, oauthAccounts.length, loadingAccounts, oauthBusy, oauthSelection]);
+    // Try listing accounts to verify the token is still good
+    cloudflareListAccounts(existingOauth.access_token)
+      .then((accounts) => {
+        setOauthAccounts(accounts);
+        setOauthSelection(existingAccountId);
+        setSessionState("valid");
+      })
+      .catch(() => {
+        // Token is stale — auto-clear it
+        cloudflareOauthLogout().catch(() => {});
+        setSessionState("expired");
+        setOauthError(
+          "Your saved Cloudflare session has expired or been revoked. Please log in again."
+        );
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openTokenPage = async () => {
     try {
       const url = await cloudflareTemplateUrl();
       await open(url);
-    } catch (e) {
-      console.error("failed to open token page:", e);
+    } catch {
       open("https://dash.cloudflare.com/profile/api-tokens").catch(console.error);
     }
   };
@@ -108,13 +87,12 @@ export function CloudflareStep({
     setOauthBusy(true);
     setOauthError(null);
     setOauthAccounts([]);
-    setExistingOauthLoaded(false);
     try {
       const oauth = await cloudflareOauthLogin();
       const accounts = await cloudflareListAccounts(oauth.access_token);
       if (accounts.length === 0) {
         throw new Error(
-          "Cloudflare login succeeded, but no accounts were returned for this user."
+          "Cloudflare login succeeded, but no accounts were found for this user."
         );
       }
 
@@ -126,6 +104,7 @@ export function CloudflareStep({
 
       setOauthAccounts(accounts);
       setOauthSelection(accounts[0].id);
+      setSessionState("valid");
     } catch (e) {
       const msg = typeof e === "string" ? e : (e as Error).message;
       setOauthError(msg ?? "Cloudflare OAuth login failed");
@@ -145,6 +124,21 @@ export function CloudflareStep({
       const msg = typeof e === "string" ? e : (e as Error).message;
       setOauthError(msg ?? "Failed to save Cloudflare account selection");
     } finally {
+      setOauthBusy(false);
+    }
+  };
+
+  const handleResetOauth = async () => {
+    setOauthBusy(true);
+    try {
+      await cloudflareOauthLogout();
+    } catch {
+      // best effort
+    } finally {
+      setSessionState("none");
+      setOauthAccounts([]);
+      setOauthSelection("");
+      setOauthError(null);
       setOauthBusy(false);
     }
   };
@@ -184,6 +178,8 @@ export function CloudflareStep({
     }
   };
 
+  const sessionValid = sessionState === "valid" && oauthSelection;
+
   return (
     <div className="step-page card">
       <h2>Connect Cloudflare</h2>
@@ -193,62 +189,43 @@ export function CloudflareStep({
         is fully off.
       </p>
 
-      {loadingAccounts && (
+      {/* Session check in progress */}
+      {sessionState === "checking" && (
         <div className="status status-info">
           <span className="status-icon">◐</span>
-          <div>Loading your Cloudflare accounts...</div>
+          <div>Verifying saved Cloudflare session...</div>
         </div>
       )}
 
-      {accountsLoadError && (
-        <div className="status status-warning">
-          <span className="status-icon">!</span>
-          <div className="status-content">
-            <div className="status-title">Could not refresh account list</div>
-            <div className="meta">{accountsLoadError}</div>
-          </div>
-        </div>
-      )}
-
-      <div className="actions">
-        <button
-          className="btn btn-primary btn-large"
-          onClick={handleOauthLogin}
-          disabled={busy}
-        >
-          {oauthBusy ? "Opening browser..." : "Login with Cloudflare"}
-        </button>
-        {existingOauthLoaded && oauthSelection && (
-          <button
-            className="btn btn-accent btn-large"
-            onClick={handleOauthContinue}
-            disabled={oauthBusy}
-          >
-            Continue with saved session -&gt;
-          </button>
-        )}
-      </div>
-
-      <p className="muted">
-        aScrobble uses Cloudflare's Wrangler OAuth flow to authenticate. You'll
-        see "Wrangler" listed in your Cloudflare authorized applications - this
-        is because Cloudflare doesn't offer OAuth app registration for
-        third-party developers.
-      </p>
-
-      {existingOauth && (
+      {/* Session valid — show existing account + continue button */}
+      {sessionState === "valid" && existingOauth && oauthSelection && (
         <div className="status status-ok">
           <span className="status-icon">OK</span>
           <div>
-            Existing OAuth session found in keychain
-            {existingAccountId ? ` (account ${existingAccountId.slice(0, 8)}...)` : ""}
+            <strong>Cloudflare session active</strong>
+            <div className="meta" style={{ marginTop: 4 }}>
+              Account: {oauthSelection.slice(0, 8)}…
+            </div>
           </div>
         </div>
       )}
 
-      {/* Only show account picker if we loaded multiple accounts from OAuth */}
+      {/* Expired session warning */}
+      {sessionState === "expired" && (
+        <div className="status status-error">
+          <span className="status-icon">!</span>
+          <div>
+            <strong>Session expired</strong>
+            <div className="meta" style={{ marginTop: 4 }}>
+              {oauthError ?? "Your saved Cloudflare session is no longer valid."}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Multiple account picker */}
       {oauthAccounts.length > 1 && (
-        <div className="form">
+        <div className="form" style={{ marginTop: 12 }}>
           <div className="form-row">
             <label>
               <span>Pick the Cloudflare account for this deployment</span>
@@ -268,19 +245,66 @@ export function CloudflareStep({
         </div>
       )}
 
-      {oauthError && (
-        <div className="status status-error">
+      {/* OAuth error (login failures) */}
+      {oauthError && sessionState !== "expired" && (
+        <div className="status status-error" style={{ marginTop: 12 }}>
           <span className="status-icon">!</span>
           <div>{oauthError}</div>
         </div>
       )}
 
+      {/* Primary action buttons */}
+      <div className="actions" style={{ marginTop: 20 }}>
+        {/* Continue with verified saved session */}
+        {sessionValid && (
+          <button
+            className="btn btn-primary btn-large"
+            onClick={handleOauthContinue}
+            disabled={busy}
+          >
+            {oauthBusy ? "Saving..." : "Continue →"}
+          </button>
+        )}
+
+        {/* Login / re-login */}
+        <button
+          className="btn btn-secondary btn-large"
+          onClick={handleOauthLogin}
+          disabled={busy}
+        >
+          {oauthBusy
+            ? "Opening browser..."
+            : sessionValid
+            ? "Switch account"
+            : "Login with Cloudflare"}
+        </button>
+
+        {/* Reset session */}
+        {(sessionState === "valid" || sessionState === "expired") && (
+          <button
+            className="btn btn-secondary"
+            onClick={handleResetOauth}
+            disabled={busy}
+          >
+            Reset session
+          </button>
+        )}
+      </div>
+
+      <p className="muted" style={{ marginTop: 16 }}>
+        aScrobble uses Cloudflare's Wrangler OAuth flow to authenticate. You'll
+        see "Wrangler" listed in your Cloudflare authorized applications - this
+        is because Cloudflare doesn't offer OAuth app registration for
+        third-party developers.
+      </p>
+
+      {/* Advanced: manual API token */}
       <details className="how-it-works">
         <summary>Advanced: paste API token instead</summary>
         <ol className="numbered-steps">
           <li>
             <button className="link-btn" onClick={openTokenPage} disabled={busy}>
-              Open the Cloudflare API tokens page -&gt;
+              Open the Cloudflare API tokens page →
             </button>
             <div className="muted">
               Use the pre-filled "Edit Cloudflare Workers" template, then copy
@@ -357,7 +381,7 @@ export function CloudflareStep({
               onClick={handleManualSave}
               disabled={!manualSelection || busy}
             >
-              Save and continue -&gt;
+              Save and continue →
             </button>
           )}
           {manualPhase === "saving" && (

@@ -38,3 +38,9 @@ src-tauri/.cargo/
 # Wrangler local state
 worker/.wrangler/
 worker/.dev.vars
+
+# Research & Scratch files
+*.har
+scratch/
+*.log
+

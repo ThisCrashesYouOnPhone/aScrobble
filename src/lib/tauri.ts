@@ -111,3 +111,13 @@ export const getStatusAuthKey = (): Promise<string | null> =>
 
 export const getWorkerStatus = (): Promise<WorkerLedger> =>
   invoke("get_worker_status");
+
+export const updatePollInterval = (minutes: number): Promise<void> =>
+  invoke("update_poll_interval", { minutes });
+
+export const resetWorkerStatsBackend = (): Promise<WorkerLedger> =>
+  invoke("reset_worker_stats");
+
+export const redeployWorker = (): Promise<void> =>
+  invoke("redeploy_worker");
+

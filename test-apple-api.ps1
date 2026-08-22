@@ -20,33 +20,90 @@ if (-not $creds) {
 Write-Host "Found credentials:" -ForegroundColor Green
 $creds | ForEach-Object { Write-Host "  $_" }
 
-# Try to extract tokens using a more reliable method
-# The tokens are stored as generic credentials, we need to use the Windows API or a helper
+Write-Host "`nAttempting to read stored tokens from Windows Credential Manager..." -ForegroundColor Cyan
 
-Write-Host "`nAttempting to read stored tokens..." -ForegroundColor Cyan
+$code = @"
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
 
-# Since we can't easily read generic credentials via cmdkey, let's check if there's a JSON file
-$tokenFile = Join-Path $env:LOCALAPPDATA "ascrobble" "tokens.json"
-if (Test-Path $tokenFile) {
-    Write-Host "Found token file: $tokenFile" -ForegroundColor Green
-    $tokens = Get-Content $tokenFile | ConvertFrom-Json
-    $devToken = $tokens.apple_developer_token
-    $userToken = $tokens.apple_music_user_token
-} else {
-    Write-Host "Token file not found. Checking alternative locations..." -ForegroundColor Yellow
-    
-    # Check app data folder
-    $appDataDir = Join-Path $env:LOCALAPPDATA "ascrobble"
-    if (Test-Path $appDataDir) {
-        Get-ChildItem $appDataDir -Recurse -File | ForEach-Object {
-            Write-Host "  Found: $($_.FullName)"
-        }
+public class CredentialManager
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct CREDENTIAL
+    {
+        public int Flags;
+        public int Type;
+        public string TargetName;
+        public string Comment;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
+        public int CredentialBlobSize;
+        public IntPtr CredentialBlob;
+        public int Persist;
+        public int AttributeCount;
+        public IntPtr Attributes;
+        public string TargetAlias;
+        public string UserName;
     }
-    
-    # Last resort: prompt user
+
+    [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool CredRead(string target, int type, int reservedFlag, out IntPtr credentialPtr);
+
+    [DllImport("advapi32.dll", EntryPoint = "CredFree", SetLastError = true)]
+    private static extern void CredFree(IntPtr credentialPtr);
+
+    public static string ReadCredential(string targetName)
+    {
+        IntPtr credPtr;
+        if (CredRead(targetName, 1, 0, out credPtr))
+        {
+            try
+            {
+                CREDENTIAL cred = (CREDENTIAL)Marshal.PtrToStructure(credPtr, typeof(CREDENTIAL));
+                if (cred.CredentialBlob != IntPtr.Zero && cred.CredentialBlobSize > 0)
+                {
+                    byte[] blob = new byte[cred.CredentialBlobSize];
+                    Marshal.Copy(cred.CredentialBlob, blob, 0, cred.CredentialBlobSize);
+                    return Encoding.Unicode.GetString(blob);
+                }
+            }
+            finally
+            {
+                CredFree(credPtr);
+            }
+        }
+        return null;
+    }
+}
+"@
+
+Add-Type -TypeDefinition $code -IgnoreWarnings
+
+$jsonTokens = $null
+foreach ($target in @("apple-tokens.dev.amusic.app", "apple-tokens.dev.ascrobble.app")) {
+    $raw = [CredentialManager]::ReadCredential($target)
+    if ($raw) {
+        $jsonTokens = $raw
+        break
+    }
+}
+
+if ($jsonTokens) {
+    $parsed = $jsonTokens | ConvertFrom-Json
+    $devToken = $parsed.developer_token
+    $userToken = $parsed.music_user_token
+} else {
+    $appDataDir = [System.IO.Path]::Combine($env:LOCALAPPDATA, "ascrobble")
+    $tokenFile = [System.IO.Path]::Combine($appDataDir, "tokens.json")
+    if (Test-Path $tokenFile) {
+        $tokens = Get-Content $tokenFile | ConvertFrom-Json
+        $devToken = $tokens.developer_token
+        $userToken = $tokens.music_user_token
+    }
+}
+
+if (-not $devToken -or -not $userToken) {
     Write-Host "`nCould not auto-extract tokens from keychain." -ForegroundColor Yellow
-    Write-Host "Please enter them manually (copy from the aScrobble app Settings):" -ForegroundColor Yellow
-    
     $devToken = Read-Host -Prompt "Developer Token (starts with eyJ...)"
     $userToken = Read-Host -Prompt "Music User Token"
 }

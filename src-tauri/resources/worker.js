@@ -1,7 +1,7 @@
 // src/apple.ts
 var API_BASE = "https://api.music.apple.com/v1";
-var PAGE_SIZE = 10;
-var MAX_OFFSET = 40;
+var PAGE_SIZE = 30;
+var MAX_OFFSET = 90;
 var TokenExpiredError = class extends Error {
   constructor() {
     super(
@@ -15,6 +15,10 @@ var SPOOFED_HEADERS = {
   Referer: "https://music.apple.com/",
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 };
+function normalizeAlbumName(rawAlbum) {
+  if (!rawAlbum) return "";
+  return rawAlbum.replace(/ - (EP|Single)$/i, "").trim();
+}
 async function fetchTrackPlayCount(devToken, musicUserToken, isrc) {
   const url = `${API_BASE}/me/library/songs?filter[isrc]=${encodeURIComponent(isrc)}&fields[library-songs]=playCount&limit=1`;
   const headers = {
@@ -62,11 +66,13 @@ async function fetchRecentlyPlayed(devToken, musicUserToken) {
     for (const item of items) {
       if (!item.id) continue;
       const attrs = item.attributes ?? {};
+      const rawAlbum = attrs.albumName ?? "";
       tracks.push({
         id: item.id,
         name: attrs.name ?? "",
         artist: attrs.artistName ?? "",
-        album: attrs.albumName ?? "",
+        album_artist: attrs.albumArtistName ?? attrs.artistName ?? "",
+        album: normalizeAlbumName(rawAlbum),
         duration_ms: attrs.durationInMillis ?? 18e4,
         isrc: attrs.isrc
       });
@@ -84,19 +90,56 @@ async function fetchRecentlyPlayed(devToken, musicUserToken) {
 }
 
 // src/detect.ts
-function detectPlays(current, previous) {
+function detectPlays(current, previous, _elapsedSeconds = 180, prevState = {}) {
   if (previous.length === 0) {
-    return [...current].reverse().map((track) => ({ track, kind: "new" }));
+    const plays = [...current].reverse().map((track) => ({ track, kind: "new" }));
+    return {
+      plays,
+      newState: { stationaryIdle: false, handledCount: 1, position0ElapsedSec: 0 }
+    };
   }
   const k = findShift(current, previous);
-  if (k !== null) {
+  if (k !== null && k > 0) {
     const newPlays = [];
     for (let i = 0; i < k; i++) {
       newPlays.push({ track: current[i], kind: "new" });
     }
-    return newPlays.reverse();
+    return {
+      plays: newPlays.reverse(),
+      newState: { stationaryIdle: false, handledCount: 1, position0ElapsedSec: 0 }
+    };
   }
-  return fallbackDetect(current, previous);
+  if (current.length >= 2 && previous.length >= 2 && current[0].id === previous[0].id) {
+    const curTail = current.slice(1);
+    const prevTail = previous.slice(1);
+    const tailShift = findShift(curTail, prevTail);
+    if (tailShift !== null && tailShift > 0) {
+      const interimPlays = [];
+      for (let i = 0; i < tailShift; i++) {
+        interimPlays.push({ track: curTail[i], kind: "top-rebound" });
+      }
+      interimPlays.push({ track: current[0], kind: "top-rebound" });
+      return {
+        plays: interimPlays.reverse(),
+        newState: { stationaryIdle: false, handledCount: (prevState.handledCount ?? 1) + 1, position0ElapsedSec: 0 }
+      };
+    }
+  }
+  if (current.length > 0 && previous.length > 0 && current[0].id === previous[0].id) {
+    return {
+      plays: [],
+      newState: {
+        stationaryIdle: true,
+        handledCount: prevState.handledCount ?? 1,
+        position0ElapsedSec: 0
+      }
+    };
+  }
+  const fallback = fallbackDetect(current, previous);
+  return {
+    plays: fallback,
+    newState: { stationaryIdle: false, handledCount: 1, position0ElapsedSec: 0 }
+  };
 }
 function findShift(current, previous) {
   const curLen = current.length;
@@ -479,7 +522,17 @@ async function postMessage(webhookUrl, message) {
 
 // src/ledger.ts
 var LEDGER_KEY = "ledger:v1";
-var MAX_RECENT_SCROBBLES = 100;
+function addLogEntry(ledger, step, details, level = "info") {
+  if (!ledger.log_entries) ledger.log_entries = [];
+  ledger.log_entries.unshift({
+    timestamp_iso: (/* @__PURE__ */ new Date()).toISOString(),
+    step,
+    details,
+    level
+  });
+  ledger.log_entries = ledger.log_entries.slice(0, 50);
+}
+var MAX_RECENT_SCROBBLES = 1e3;
 var DEFAULT_LEDGER = {
   version: 1,
   last_run_iso: null,
@@ -494,18 +547,29 @@ var DEFAULT_LEDGER = {
     last_error_message: null
   }
 };
+var MEMORY_LEDGER_CACHE = null;
 async function loadLedger(kv) {
   try {
     const raw = await kv.get(LEDGER_KEY, "json");
     if (raw && typeof raw === "object") {
-      return { ...DEFAULT_LEDGER, ...raw };
+      const kvLedger = { ...DEFAULT_LEDGER, ...raw };
+      if (MEMORY_LEDGER_CACHE && MEMORY_LEDGER_CACHE.last_run_iso) {
+        const memoryTime = new Date(MEMORY_LEDGER_CACHE.last_run_iso).getTime();
+        const kvTime = kvLedger.last_run_iso ? new Date(kvLedger.last_run_iso).getTime() : 0;
+        if (memoryTime >= kvTime) {
+          return MEMORY_LEDGER_CACHE;
+        }
+      }
+      MEMORY_LEDGER_CACHE = kvLedger;
+      return kvLedger;
     }
   } catch (e) {
     console.warn("Ledger read failed, starting fresh:", e);
   }
-  return { ...DEFAULT_LEDGER };
+  return MEMORY_LEDGER_CACHE ?? { ...DEFAULT_LEDGER };
 }
 async function saveLedger(kv, ledger) {
+  MEMORY_LEDGER_CACHE = ledger;
   await kv.put(LEDGER_KEY, JSON.stringify(ledger));
 }
 function addRecentScrobbles(ledger, plays) {
@@ -532,13 +596,108 @@ var KV_KEY_APPLE_DEV_TOKEN = "apple_dev_token";
 var KV_KEY_APPLE_USER_TOKEN = "apple_user_token";
 
 // src/scrobbler.ts
-async function pollAndScrobble(env) {
+var CB_ERROR_THRESHOLD = 5;
+var CB_BASE_COOLDOWN_MS = 30 * 60 * 1e3;
+var CB_INSTANT_TRIP_ERRORS = /* @__PURE__ */ new Set(["apple_token_expired", "apple_tokens_missing_in_kv"]);
+var CB_MAX_COOLDOWN_MS = 2 * 60 * 60 * 1e3;
+var DEDUP_WINDOW_MS = 30 * 1e3;
+var DEDUP_MAX_ENTRIES = 200;
+function isCircuitOpen(ledger, now) {
+  if (!ledger.circuit_open_until_iso) return false;
+  return now < new Date(ledger.circuit_open_until_iso).getTime();
+}
+function openCircuit(ledger, now) {
+  const opens = ledger.consecutive_errors ?? CB_ERROR_THRESHOLD;
+  const multiplier = Math.pow(2, Math.max(0, Math.floor(opens / CB_ERROR_THRESHOLD) - 1));
+  const cooldown = Math.min(CB_BASE_COOLDOWN_MS * multiplier, CB_MAX_COOLDOWN_MS);
+  ledger.circuit_open_until_iso = new Date(now + cooldown).toISOString();
+  console.warn(
+    `Circuit breaker OPEN \u2014 pausing polls for ${Math.round(cooldown / 6e4)} min (consecutive_errors=${ledger.consecutive_errors})`
+  );
+}
+function resetCircuit(ledger) {
+  ledger.consecutive_errors = 0;
+  ledger.circuit_open_until_iso = void 0;
+}
+function dedupKey(trackId, bucketMs) {
+  const bucket = Math.floor(bucketMs / DEDUP_WINDOW_MS);
+  return `${trackId}:${bucket}`;
+}
+function pruneDedup(ledger, now) {
+  if (!ledger.recent_scrobble_ids) return;
+  const cutoff = Math.floor((now - DEDUP_WINDOW_MS) / DEDUP_WINDOW_MS);
+  ledger.recent_scrobble_ids = ledger.recent_scrobble_ids.filter((k) => {
+    const bucket = parseInt(k.split(":")[1] ?? "0", 10);
+    return bucket > cutoff;
+  }).slice(0, DEDUP_MAX_ENTRIES);
+}
+function isDuplicate(ledger, trackId, now) {
+  if (!ledger.recent_scrobble_ids) return false;
+  return ledger.recent_scrobble_ids.includes(dedupKey(trackId, now));
+}
+function recordScrobbled(ledger, trackId, now) {
+  if (!ledger.recent_scrobble_ids) ledger.recent_scrobble_ids = [];
+  ledger.recent_scrobble_ids.push(dedupKey(trackId, now));
+}
+async function failRun(env, ledger, runTime, startedAt, errorMessage, instantTrip = false) {
+  ledger.stats.total_errors += 1;
+  ledger.stats.last_error_iso = runTime.toISOString();
+  ledger.stats.last_error_message = errorMessage;
+  ledger.consecutive_errors = (ledger.consecutive_errors ?? 0) + 1;
+  const shouldOpen = instantTrip || CB_INSTANT_TRIP_ERRORS.has(errorMessage) || ledger.consecutive_errors >= CB_ERROR_THRESHOLD;
+  if (shouldOpen && !isCircuitOpen(ledger, startedAt)) {
+    openCircuit(ledger, startedAt);
+  }
+  await saveLedger(env.ASCROBBLE_STATE, ledger);
+  return {
+    ok: false,
+    detected: 0,
+    accepted: 0,
+    ignored: 0,
+    errors: 1,
+    repeat_count: 0,
+    elapsed_ms: Date.now() - startedAt,
+    error_message: errorMessage,
+    circuit_open: isCircuitOpen(ledger, startedAt)
+  };
+}
+async function pollAndScrobble(env, isManual = false) {
   const startedAt = Date.now();
   const runTime = new Date(startedAt);
   const ledger = await loadLedger(env.ASCROBBLE_STATE);
   const lastRunTime = parseLastRunTime(ledger);
   ledger.stats.total_runs += 1;
   ledger.last_run_iso = runTime.toISOString();
+  addLogEntry(ledger, "poll_start", `Run #${ledger.stats.total_runs} started${isManual ? " (manual)" : ""} \xB7 elapsed since last: ${lastRunTime ? Math.round((startedAt - lastRunTime.getTime()) / 1e3) + "s" : "first run"}`, "info");
+  if (isManual) {
+    resetCircuit(ledger);
+    addLogEntry(ledger, "circuit_reset", "Manual trigger \u2014 circuit breaker reset", "info");
+  }
+  if (isCircuitOpen(ledger, startedAt)) {
+    const until = new Date(ledger.circuit_open_until_iso);
+    const minLeft = Math.round((until.getTime() - startedAt) / 6e4);
+    console.warn(
+      `Circuit breaker is OPEN \u2014 skipping poll. Will retry after ${until.toISOString()} (${minLeft} min remaining)`
+    );
+    addLogEntry(ledger, "circuit_open", `Circuit open \u2014 skipping poll for ${minLeft}min more`, "error");
+    ledger.last_run_iso = runTime.toISOString();
+    const lastSaveTime = ledger.last_save_iso ? new Date(ledger.last_save_iso).getTime() : 0;
+    if (startedAt - lastSaveTime > 15 * 60 * 1e3) {
+      ledger.last_save_iso = runTime.toISOString();
+      await saveLedger(env.ASCROBBLE_STATE, ledger);
+    }
+    return {
+      ok: false,
+      detected: 0,
+      accepted: 0,
+      ignored: 0,
+      errors: 0,
+      repeat_count: 0,
+      elapsed_ms: Date.now() - startedAt,
+      circuit_open: true
+    };
+  }
+  addLogEntry(ledger, "kv_token_read", "Reading Apple dev + user tokens from Cloudflare KV...", "info");
   const [appleDevToken, appleUserToken] = await Promise.all([
     env.ASCROBBLE_STATE.get(KV_KEY_APPLE_DEV_TOKEN),
     env.ASCROBBLE_STATE.get(KV_KEY_APPLE_USER_TOKEN)
@@ -548,48 +707,52 @@ async function pollAndScrobble(env) {
     console.error(
       `${msg}: expected keys ${KV_KEY_APPLE_DEV_TOKEN} and ${KV_KEY_APPLE_USER_TOKEN}`
     );
-    ledger.stats.total_errors += 1;
-    ledger.stats.last_error_iso = runTime.toISOString();
-    ledger.stats.last_error_message = msg;
-    await saveLedger(env.ASCROBBLE_STATE, ledger);
-    return {
-      ok: false,
-      detected: 0,
-      accepted: 0,
-      ignored: 0,
-      errors: 1,
-      repeat_count: 0,
-      elapsed_ms: Date.now() - startedAt,
-      error_message: msg
-    };
+    addLogEntry(ledger, "kv_token_missing", "Apple tokens not found in KV \u2014 circuit tripped", "error");
+    return failRun(
+      env,
+      ledger,
+      runTime,
+      startedAt,
+      msg,
+      /*instantTrip=*/
+      true
+    );
   }
+  addLogEntry(ledger, "kv_token_ok", "Apple tokens found in KV \u2713", "info");
+  addLogEntry(ledger, "apple_fetch_start", "Calling Apple Music /v1/me/recent/played/tracks...", "info");
   let current;
   try {
     current = await fetchRecentlyPlayed(appleDevToken, appleUserToken);
   } catch (e) {
     if (e instanceof TokenExpiredError) {
-      ledger.stats.total_errors += 1;
-      ledger.stats.last_error_iso = runTime.toISOString();
-      ledger.stats.last_error_message = "apple_token_expired";
-      await saveLedger(env.ASCROBBLE_STATE, ledger);
+      console.error("Apple token expired \u2014 tripping circuit breaker");
+      addLogEntry(ledger, "apple_token_expired", "Apple Music token returned 401 \u2014 circuit tripped", "error");
       await notifyTokenExpired(env.NOTIFY_WEBHOOK_URL);
-      return {
-        ok: false,
-        detected: 0,
-        accepted: 0,
-        ignored: 0,
-        errors: 1,
-        repeat_count: 0,
-        elapsed_ms: Date.now() - startedAt,
-        error_message: "apple_token_expired"
-      };
+      return failRun(
+        env,
+        ledger,
+        runTime,
+        startedAt,
+        "apple_token_expired",
+        /*instantTrip=*/
+        true
+      );
     }
-    throw e;
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("Apple API error:", msg);
+    addLogEntry(ledger, "apple_fetch_error", `Apple API error: ${msg}`, "error");
+    return failRun(env, ledger, runTime, startedAt, `apple_api_error: ${msg}`);
   }
+  resetCircuit(ledger);
+  ledger.stats.last_error_message = null;
+  ledger.stats.last_error_iso = null;
   console.log(`Apple returned ${current.length} tracks`);
+  addLogEntry(ledger, "apple_fetch_success", `Fetched ${current.length} recently played tracks from Apple API`, "info");
   if (ledger.previous_recent.length === 0) {
     console.log(`First run \u2014 snapshotting ${current.length} tracks without scrobbling`);
+    addLogEntry(ledger, "bootstrap_snapshot", `Snapshotting ${current.length} tracks on initial run`, "info");
     ledger.previous_recent = current;
+    ledger.stats.last_success_iso = runTime.toISOString();
     await saveLedger(env.ASCROBBLE_STATE, ledger);
     return {
       ok: true,
@@ -601,7 +764,17 @@ async function pollAndScrobble(env) {
       elapsed_ms: Date.now() - startedAt
     };
   }
-  const plays = detectPlays(current, ledger.previous_recent);
+  const elapsedSeconds = lastRunTime ? Math.max(0, Math.round((startedAt - lastRunTime.getTime()) / 1e3)) : 180;
+  const prevState = {
+    stationaryIdle: ledger.stationary_idle ?? false,
+    handledCount: ledger.handled_count ?? 1,
+    position0ElapsedSec: ledger.position0_elapsed_sec ?? 0
+  };
+  const detection = detectPlays(current, ledger.previous_recent, elapsedSeconds, prevState);
+  const plays = detection.plays;
+  ledger.stationary_idle = detection.newState.stationaryIdle;
+  ledger.handled_count = detection.newState.handledCount;
+  ledger.position0_elapsed_sec = detection.newState.position0ElapsedSec;
   if (plays.length === 0 && current.length > 0 && ledger.previous_recent.length > 0) {
     const topTrack = current[0];
     const prevTopTrack = ledger.previous_recent[0];
@@ -614,9 +787,11 @@ async function pollAndScrobble(env) {
           console.log(
             `Position-0 probe: play count for "${topTrack.name}" rose by ${delta} \u2014 emitting ${delta} silent repeat(s)`
           );
+          addLogEntry(ledger, "repeat_probe_detected", `Library playCount rose by ${delta} for "${topTrack.name}"`, "success");
           for (let i = 0; i < delta; i++) {
             plays.push({ track: topTrack, kind: "repeat" });
           }
+          ledger.stationary_idle = false;
         }
         ledger.top_track_id = topTrack.id;
         ledger.top_track_play_count = newCount;
@@ -626,10 +801,28 @@ async function pollAndScrobble(env) {
       ledger.top_track_play_count = void 0;
     }
   }
-  if (plays.length === 0) {
+  pruneDedup(ledger, startedAt);
+  const deduped = plays.filter((p) => {
+    const trackId = p.track.id;
+    if (!trackId) return true;
+    if (isDuplicate(ledger, trackId, startedAt)) {
+      console.warn(`Dedup guard: skipping "${p.track.name}" \u2014 already scrobbled in last 30s`);
+      addLogEntry(ledger, "dedup_skipped", `Skipping duplicate play "${p.track.name}" within 30s window`, "warn");
+      return false;
+    }
+    return true;
+  });
+  if (deduped.length === 0) {
     console.log("No new plays");
     ledger.previous_recent = current;
-    await saveLedger(env.ASCROBBLE_STATE, ledger);
+    const topTrackName = current[0]?.name ?? "None";
+    addLogEntry(ledger, "poll_idle", `Checked ${current.length} Apple tracks \u2014 0 new plays. Latest track in history: "${topTrackName}"`, "info");
+    const lastSaveTime = ledger.last_save_iso ? new Date(ledger.last_save_iso).getTime() : 0;
+    const shouldSave = !ledger.last_save_iso || startedAt - lastSaveTime >= 5 * 60 * 1e3;
+    if (shouldSave) {
+      ledger.last_save_iso = runTime.toISOString();
+      await saveLedger(env.ASCROBBLE_STATE, ledger);
+    }
     return {
       ok: true,
       detected: 0,
@@ -640,8 +833,10 @@ async function pollAndScrobble(env) {
       elapsed_ms: Date.now() - startedAt
     };
   }
-  console.log(`Detected ${plays.length} plays`);
-  const timestamped = assignTimestamps(plays, runTime, lastRunTime);
+  addLogEntry(ledger, "scrobble_detected", `Detected ${deduped.length} play(s): ${deduped.map((p) => `"${p.track.name}"`).join(", ")}`, "success");
+  const dedupDropped = plays.length - deduped.length;
+  console.log(`Detected ${deduped.length} play(s) (${dedupDropped} deduped)`);
+  const timestamped = assignTimestamps(deduped, runTime, lastRunTime);
   for (const p of timestamped) {
     console.log(
       `  [${p.kind}] ${p.track.artist} \u2014 ${p.track.name} @ ${p.timestamp?.toISOString()}`
@@ -654,6 +849,7 @@ async function pollAndScrobble(env) {
     timestamp: p.timestamp,
     duration_ms: p.track.duration_ms
   }));
+  addLogEntry(ledger, "lastfm_submit_start", `Submitting ${payload.length} scrobble(s) to Last.fm...`, "info");
   let lfmResult = await scrobbleBatch(
     payload,
     env.LASTFM_API_KEY,
@@ -662,6 +858,7 @@ async function pollAndScrobble(env) {
   );
   if (lfmResult.errors > 0 && lfmResult.accepted === 0) {
     console.warn(`Last.fm: all ${lfmResult.errors} tracks failed \u2014 retrying after 1 s`);
+    addLogEntry(ledger, "lastfm_submit_retry", `All ${lfmResult.errors} tracks failed \u2014 retrying in 1s...`, "warn");
     await new Promise((r) => setTimeout(r, 1e3));
     lfmResult = await scrobbleBatch(
       payload,
@@ -673,11 +870,29 @@ async function pollAndScrobble(env) {
   console.log(
     `Last.fm: ${lfmResult.accepted} accepted, ${lfmResult.ignored} ignored, ${lfmResult.errors} errors`
   );
+  addLogEntry(
+    ledger,
+    "lastfm_submit_done",
+    `Last.fm: ${lfmResult.accepted} accepted \xB7 ${lfmResult.ignored} ignored \xB7 ${lfmResult.errors} errors`,
+    lfmResult.accepted > 0 ? "success" : lfmResult.errors > 0 ? "error" : "info"
+  );
+  if (lfmResult.errors > 0 && lfmResult.accepted === 0) {
+    const msg = `lastfm_submit_failed (${lfmResult.errors} errors)`;
+    console.error(msg);
+    ledger.consecutive_errors = (ledger.consecutive_errors ?? 0) + 1;
+    addLogEntry(ledger, "circuit_error_count", `Consecutive errors: ${ledger.consecutive_errors}/${5}`, "warn");
+    if (ledger.consecutive_errors >= CB_ERROR_THRESHOLD) {
+      openCircuit(ledger, startedAt);
+      addLogEntry(ledger, "circuit_tripped", `Circuit breaker tripped after ${CB_ERROR_THRESHOLD} consecutive errors`, "error");
+    }
+  }
   if (env.LISTENBRAINZ_TOKEN) {
+    addLogEntry(ledger, "listenbrainz_submit", "Also submitting to ListenBrainz...", "info");
     const lbResult = await submitBatch(payload, env.LISTENBRAINZ_TOKEN);
     console.log(
       `ListenBrainz: ${lbResult.accepted} accepted, ${lbResult.errors} errors`
     );
+    addLogEntry(ledger, "listenbrainz_done", `ListenBrainz: ${lbResult.accepted} accepted \xB7 ${lbResult.errors} errors`, lbResult.accepted > 0 ? "success" : "info");
   }
   const repeatCount = timestamped.filter((p) => p.kind === "repeat").length;
   await notifySummary(
@@ -692,14 +907,29 @@ async function pollAndScrobble(env) {
     const milestone = Math.floor(newTotal / 1e3) * 1e3;
     await notifyMilestone(env.NOTIFY_WEBHOOK_URL, milestone);
   }
+  for (const p of timestamped) {
+    const trackId = p.track.id;
+    if (trackId) recordScrobbled(ledger, trackId, startedAt);
+  }
   addRecentScrobbles(ledger, timestamped);
   ledger.previous_recent = current;
   ledger.stats.total_scrobbled = newTotal;
   ledger.stats.last_success_iso = runTime.toISOString();
+  if (lfmResult.accepted > 0) {
+    ledger.stats.last_error_message = null;
+    ledger.stats.last_error_iso = null;
+  }
+  ledger.last_save_iso = runTime.toISOString();
+  addLogEntry(
+    ledger,
+    "poll_complete",
+    `Run done in ${Date.now() - startedAt}ms \u2014 ${lfmResult.accepted} scrobbled, ${newTotal} total. Saving KV.`,
+    "success"
+  );
   await saveLedger(env.ASCROBBLE_STATE, ledger);
   return {
     ok: true,
-    detected: plays.length,
+    detected: deduped.length,
     accepted: lfmResult.accepted,
     ignored: lfmResult.ignored,
     errors: lfmResult.errors,
@@ -709,6 +939,62 @@ async function pollAndScrobble(env) {
 }
 async function getStatus(env) {
   return loadLedger(env.ASCROBBLE_STATE);
+}
+async function resetLedgerStats(env) {
+  const ledger = await loadLedger(env.ASCROBBLE_STATE);
+  ledger.stats.total_errors = 0;
+  ledger.stats.last_error_message = null;
+  ledger.stats.last_error_iso = null;
+  ledger.consecutive_errors = 0;
+  ledger.circuit_open_until_iso = void 0;
+  await saveLedger(env.ASCROBBLE_STATE, ledger);
+  return ledger;
+}
+async function updateTokens(env, appleDevToken, appleUserToken) {
+  const updated = [];
+  if (appleDevToken) {
+    await env.ASCROBBLE_STATE.put(KV_KEY_APPLE_DEV_TOKEN, appleDevToken);
+    updated.push(KV_KEY_APPLE_DEV_TOKEN);
+  }
+  if (appleUserToken) {
+    await env.ASCROBBLE_STATE.put(KV_KEY_APPLE_USER_TOKEN, appleUserToken);
+    updated.push(KV_KEY_APPLE_USER_TOKEN);
+  }
+  const ledger = await loadLedger(env.ASCROBBLE_STATE);
+  resetCircuit(ledger);
+  ledger.stats.last_error_message = null;
+  ledger.stats.last_error_iso = null;
+  addLogEntry(ledger, "tokens_updated", `Updated KV tokens: ${updated.join(", ")}`, "success");
+  await saveLedger(env.ASCROBBLE_STATE, ledger);
+  return { ok: true, updated };
+}
+async function clearCache(env, opts = {}) {
+  const ledger = await loadLedger(env.ASCROBBLE_STATE);
+  if (opts.clear_snapshot !== false) {
+    ledger.previous_recent = [];
+    ledger.stationary_idle = false;
+    ledger.handled_count = 0;
+    ledger.position0_elapsed_sec = 0;
+    ledger.top_track_id = void 0;
+    ledger.top_track_play_count = void 0;
+  }
+  if (opts.clear_dedup !== false) {
+    ledger.recent_scrobble_ids = [];
+  }
+  if (opts.clear_logs) {
+    ledger.log_entries = [];
+  }
+  if (opts.clear_recent) {
+    ledger.recent_scrobbles = [];
+  }
+  if (opts.clear_circuit !== false) {
+    resetCircuit(ledger);
+    ledger.stats.last_error_message = null;
+    ledger.stats.last_error_iso = null;
+  }
+  addLogEntry(ledger, "cache_cleared", "Cleared worker state & cache via API", "info");
+  await saveLedger(env.ASCROBBLE_STATE, ledger);
+  return { ok: true, ledger };
 }
 
 // src/index.ts
@@ -720,7 +1006,7 @@ var index_default = {
       })
     );
   },
-  async fetch(request, env, ctx) {
+  async fetch(request, env, _ctx) {
     const url = new URL(request.url);
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
@@ -735,7 +1021,7 @@ var index_default = {
     }
     if (url.pathname === "/health") {
       return json(
-        { ok: true, service: "aScrobble-scrobbler", version: "0.2.0" },
+        { ok: true, service: "aScrobble-scrobbler", version: "0.3.0" },
         200,
         corsHeaders
       );
@@ -762,13 +1048,51 @@ var index_default = {
         return json({ error: "failed to fetch status" }, 500, corsHeaders);
       }
     }
+    if (url.pathname === "/reset-stats" && request.method === "POST") {
+      try {
+        const ledger = await resetLedgerStats(env);
+        return json(ledger, 200, corsHeaders);
+      } catch (err) {
+        console.error("/reset-stats failed:", err);
+        return json({ error: "failed to reset stats" }, 500, corsHeaders);
+      }
+    }
+    if (url.pathname === "/clear-cache" && request.method === "POST") {
+      try {
+        let opts = {};
+        if (request.headers.get("Content-Type")?.includes("application/json")) {
+          opts = await request.json().catch(() => ({}));
+        }
+        const res = await clearCache(env, opts);
+        return json(res, 200, corsHeaders);
+      } catch (err) {
+        console.error("/clear-cache failed:", err);
+        return json({ error: "failed to clear cache" }, 500, corsHeaders);
+      }
+    }
+    if (url.pathname === "/update-tokens" && request.method === "POST") {
+      try {
+        const body = await request.json().catch(() => ({}));
+        const res = await updateTokens(
+          env,
+          body.apple_dev_token,
+          body.apple_user_token
+        );
+        return json(res, 200, corsHeaders);
+      } catch (err) {
+        console.error("/update-tokens failed:", err);
+        return json({ error: "failed to update tokens" }, 500, corsHeaders);
+      }
+    }
     if (url.pathname === "/trigger" && request.method === "POST") {
-      const runPromise = pollAndScrobble(env).catch((err) => {
+      try {
+        await pollAndScrobble(env, true);
+        const ledger = await getStatus(env);
+        return json({ ok: true, triggered: true, ledger }, 200, corsHeaders);
+      } catch (err) {
         console.error("/trigger failed:", err);
-        return null;
-      });
-      ctx.waitUntil(runPromise);
-      return json({ ok: true, triggered: true }, 200, corsHeaders);
+        return json({ error: String(err) }, 500, corsHeaders);
+      }
     }
     return json({ error: "not found" }, 404, corsHeaders);
   }
@@ -778,7 +1102,9 @@ function json(data, status = 200, corsHeaders = {}) {
     status,
     headers: {
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
       ...corsHeaders
     }
   });

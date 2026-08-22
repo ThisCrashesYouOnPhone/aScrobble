@@ -2,7 +2,7 @@
 // Each takes the worker URL and status auth key as params.
 
 import type { WorkerLedger } from "../types";
-import { getWorkerStatus } from "./tauri";
+import { getWorkerStatus, resetWorkerStatsBackend } from "./tauri";
 
 export async function fetchHealth(
   workerUrl: string
@@ -39,10 +39,11 @@ export async function fetchStatus(
 export async function triggerScrobble(
   workerUrl: string,
   authKey: string
-): Promise<{ ok: boolean; triggered: boolean }> {
+): Promise<{ ok: boolean; triggered: boolean; ledger?: WorkerLedger }> {
   try {
-    const resp = await fetch(`${workerUrl}/trigger?key=${encodeURIComponent(authKey)}`, {
+    const resp = await fetch(`${workerUrl}/trigger?key=${encodeURIComponent(authKey)}&_t=${Date.now()}`, {
       method: "POST",
+      headers: { "Cache-Control": "no-cache" },
     });
     if (resp.status === 401) {
       throw new Error(
@@ -61,6 +62,22 @@ export async function triggerScrobble(
       );
     }
     throw e;
+  }
+}
+
+export async function resetWorkerStats(
+  workerUrl: string,
+  authKey: string
+): Promise<WorkerLedger> {
+  try {
+    const ledger = await resetWorkerStatsBackend();
+    return ledger;
+  } catch (e) {
+    const resp = await fetch(`${workerUrl}/reset-stats?key=${encodeURIComponent(authKey)}`, {
+      method: "POST",
+    });
+    if (!resp.ok) throw new Error(`Reset stats failed: HTTP ${resp.status}`);
+    return resp.json();
   }
 }
 
