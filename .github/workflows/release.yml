@@ -12,47 +12,108 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - os: ubuntu-20.04
-            rust_target: x86_64-unknown-linux-gnu
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            rust_targets: x86_64-unknown-linux-gnu
+            label: linux
+
           - os: windows-latest
-            rust_target: x86_64-pc-windows-msvc
+            target: x86_64-pc-windows-msvc
+            rust_targets: x86_64-pc-windows-msvc
+            label: windows
+
           - os: macos-latest
-            rust_target: x86_64-apple-darwin
-          - os: macos-latest
-            rust_target: aarch64-apple-darwin
-    runs-on: ${{ matrix.platform.os }}
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            label: macos
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: setup node
+      # ── Node setup & cache ────────────────────────────────────────────────
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: npm
 
-      - name: install Rust stable
+      # ── Rust setup & cache ────────────────────────────────────────────────
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform.rust_target }}
+          targets: ${{ matrix.rust_targets }}
 
-      - name: install dependencies (ubuntu only)
-        if: matrix.platform.os == 'ubuntu-20.04'
+      - name: Cache Rust build artefacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workdir: src-tauri
+
+      # ── Linux system dependencies ─────────────────────────────────────────
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            libsoup-3.0-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libglib2.0-dev \
+            libssl-dev
 
-      - name: install frontend dependencies
-        run: npm install
+      # ── Frontend & worker ─────────────────────────────────────────────────
+      - name: Install frontend dependencies
+        run: npm ci
 
-      - name: build the app
+      - name: Build Cloudflare Worker bundle
+        run: npm run build:worker
+
+      # ── Tauri build + release ─────────────────────────────────────────────
+      - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'aScrobble ${{ github.ref_name }}'
-          releaseBody: 'See the assets below to download and install this version.'
+          releaseBody: |
+            ## What's new in v1.1
+
+            ### 🔄 In-App Auto-Update
+            aScrobble now checks for new versions on every launch. A banner appears in the Dashboard when an update is available — click **Install & relaunch** to update silently in the background. Completely optional; you can dismiss it and update later.
+
+            ### ☁️ Worker Sync After Update
+            After the app restarts post-update, a prompt appears if your deployed Cloudflare Worker is out of date. One click resyncs it so new worker features (like `/update-tokens` and `/clear-cache`) are immediately available.
+
+            ### 🔑 Token Rotation Without Redeployment (`POST /update-tokens`)
+            Rotate your Apple Music tokens directly from the Dashboard — or hit the endpoint manually — without touching the CLI or redeploying the whole worker.
+
+            ### 🧹 Granular Cache Management (`POST /clear-cache`)
+            Clear the history snapshot, dedup guard, circuit breaker state, or log entries independently via JSON flags. No more full wipes when you just want to reset one thing.
+
+            ### 🏗️ Cross-Platform Build Pipeline
+            Releases now ship native installers for all three platforms built in CI:
+            - **Windows** — `.exe` (NSIS installer)
+            - **macOS** — `.dmg` (universal binary: Intel + Apple Silicon)
+            - **Linux** — `.deb` + `.AppImage`
+
+            ### 🐛 Fixes
+            - Typecheck fixes in `detect.ts` and `index.ts` (unused parameter prefixes).
+            - Unit tests updated to match the `{ plays, newState }` return shape of `detectPlays()`.
+            - Worker `/health` version bumped to `0.3.0`.
+
+            ---
+            **⚠️ GitHub Actions secret required:** Add your `TAURI_SIGNING_PRIVATE_KEY` to repository secrets before pushing a release tag.
+
+            See the assets below to download and install.
           releaseDraft: false
           prerelease: false
-          args: ${{ matrix.platform.rust_target != '' && format('--target {0}', matrix.platform.rust_target) || '' }}
+          args: --target ${{ matrix.target }}
