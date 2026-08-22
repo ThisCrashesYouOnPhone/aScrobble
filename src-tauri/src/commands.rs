@@ -200,11 +200,6 @@ pub async fn cloudflare_oauth_login(app: AppHandle) -> Result<CloudflareOauth, S
         .map_err(err)?;
 
     storage::save_cloudflare_oauth(&oauth).map_err(err)?;
-    let saved = storage::load_cloudflare_oauth().map_err(err)?;
-    if saved.as_ref().map(|o| o.access_token.as_str()) != Some(oauth.access_token.as_str()) {
-        return Err("Cloudflare OAuth credentials did not persist to keychain".to_string());
-    }
-
     Ok(oauth)
 }
 
@@ -237,18 +232,6 @@ pub async fn cloudflare_save_credentials(
         .map_err(err)?;
     storage::save_cloudflare_token(&token).map_err(err)?;
     storage::save_cloudflare_account_id(&account_id).map_err(err)?;
-
-    // Verify persistence immediately so keychain issues fail here (with a
-    // useful error) instead of later on the deploy screen.
-    let saved_token = storage::load_cloudflare_token().map_err(err)?;
-    if saved_token.as_deref() != Some(token.as_str()) {
-        return Err("Cloudflare token did not persist to keychain".to_string());
-    }
-
-    let saved_account_id = storage::load_cloudflare_account_id().map_err(err)?;
-    if saved_account_id.as_deref() != Some(account_id.as_str()) {
-        return Err("Cloudflare account id did not persist to keychain".to_string());
-    }
 
     Ok(())
 }
