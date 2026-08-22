@@ -18,6 +18,7 @@ src-tauri/gen/
 .DS_Store
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 Thumbs.db
@@ -43,8 +44,12 @@ worker/.dev.vars
 *.har
 scratch/
 *.log
+*.ps1
+get-tokens.rs
+RecentScrobbles.tsx
 
 # Tauri signing keys — NEVER commit the private key
 src-tauri/*.key
 src-tauri/*.key.pub
+
 
