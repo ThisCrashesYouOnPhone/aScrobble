@@ -44,3 +44,7 @@ worker/.dev.vars
 scratch/
 *.log
 
+# Tauri signing keys — NEVER commit the private key
+src-tauri/*.key
+src-tauri/*.key.pub
+

@@ -186,6 +186,8 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
   const [countdownSec, setCountdownSec] = useState<number | null>(null);
   const [resetToast, setResetToast] = useState<string | null>(null);
   const [showWorkerLog, setShowWorkerLog] = useState(true);
+  const [workerOutOfSync, setWorkerOutOfSync] = useState(false);
+  const [syncingWorker, setSyncingWorker] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     if (!workerUrl || !authKey) return;
@@ -336,6 +338,17 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
             setUpdateAvailable({ version: update.version, body: update.body ?? null });
           }
         }).catch(() => { /* no update server configured yet, or offline */ });
+
+        // Worker-sync check: if localStorage records a different app version
+        // than the one running now, a relaunch after an update just happened.
+        // Prompt the user to redeploy so the worker code stays in sync.
+        const APP_VERSION = "1.1.0";
+        const storedWorkerSyncVersion = localStorage.getItem("ascrobble_worker_sync_version");
+        if (storedWorkerSyncVersion && storedWorkerSyncVersion !== APP_VERSION) {
+          setWorkerOutOfSync(true);
+        }
+        // Always write the current version so we detect future updates
+        localStorage.setItem("ascrobble_worker_sync_version", APP_VERSION);
       } catch (e) {
         const msg = typeof e === "string" ? e : (e as Error).message;
         console.error("Dashboard initialization error:", msg);
@@ -462,12 +475,32 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
     try {
       const update = await checkUpdate();
       if (update?.available) {
+        // Clear the sync version so after relaunch we prompt to redeploy worker
+        localStorage.removeItem("ascrobble_worker_sync_version");
         await update.downloadAndInstall();
         await relaunch();
       }
     } catch (e) {
       console.error("Update install failed:", e);
       setInstalling(false);
+    }
+  };
+
+  const handleSyncWorker = async () => {
+    setSyncingWorker(true);
+    try {
+      await redeployWorker();
+      setWorkerOutOfSync(false);
+      setResetToast("Worker synced to v1.1.0 ✓");
+      setTimeout(() => setResetToast(null), 4000);
+      // Refresh status after redeploy
+      setTimeout(refreshStatus, 3000);
+    } catch (e) {
+      console.error("Worker sync failed:", e);
+      const msg = typeof e === "string" ? e : (e as Error).message;
+      setStatusError(`Worker sync failed: ${msg}`);
+    } finally {
+      setSyncingWorker(false);
     }
   };
 
@@ -531,24 +564,64 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
           {resetToast}
         </div>
       )}
-      {/* Update banner */}
+      {/* App update banner */}
       {updateAvailable && (
         <div className="card" style={{ border: "1px solid rgba(100,200,255,0.4)", background: "rgba(100,200,255,0.05)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
             <div>
-              <strong style={{ color: "#64c8ff" }}>Update available — v{updateAvailable.version}</strong>
-              {updateAvailable.body && (
-                <p style={{ margin: "4px 0 0", fontSize: 12, opacity: 0.75 }}>{updateAvailable.body}</p>
-              )}
+              <strong style={{ color: "#64c8ff" }}>🚀 Update available — v{updateAvailable.version}</strong>
+              <p style={{ margin: "4px 0 0", fontSize: 12, opacity: 0.75 }}>
+                {updateAvailable.body ?? "A new version of aScrobble is ready. Your scrobbler keeps running while you update."}
+              </p>
             </div>
-            <button
-              className="btn btn-primary"
-              onClick={handleInstallUpdate}
-              disabled={installing}
-              style={{ whiteSpace: "nowrap" }}
-            >
-              {installing ? "Installing..." : "Install & relaunch"}
-            </button>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              <button
+                className="btn"
+                onClick={() => setUpdateAvailable(null)}
+                style={{ opacity: 0.6, fontSize: 12 }}
+              >
+                Later
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleInstallUpdate}
+                disabled={installing}
+                style={{ whiteSpace: "nowrap" }}
+              >
+                {installing ? "Installing..." : "Install & relaunch"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Worker out-of-sync banner — shown after app update relaunch */}
+      {workerOutOfSync && (
+        <div className="card" style={{ border: "1px solid rgba(255,200,80,0.4)", background: "rgba(255,200,80,0.05)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+            <div>
+              <strong style={{ color: "#ffc850" }}>⚡ Worker update available</strong>
+              <p style={{ margin: "4px 0 0", fontSize: 12, opacity: 0.75 }}>
+                Your Cloudflare Worker is running an older version. Sync it now to unlock new features like token rotation and cache management.
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              <button
+                className="btn"
+                onClick={() => setWorkerOutOfSync(false)}
+                style={{ opacity: 0.6, fontSize: 12 }}
+              >
+                Later
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleSyncWorker}
+                disabled={syncingWorker}
+                style={{ whiteSpace: "nowrap", background: "linear-gradient(135deg, #f59e0b, #d97706)" }}
+              >
+                {syncingWorker ? "Syncing..." : "Sync Worker"}
+              </button>
+            </div>
           </div>
         </div>
       )}
