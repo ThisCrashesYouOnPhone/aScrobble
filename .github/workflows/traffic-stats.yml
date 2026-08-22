@@ -17,3 +17,5 @@ jobs:
         uses: jgehrcke/github-repo-stats@v1.4.2
         with:
           ghtoken: ${{ secrets.GHRS_GITHUB_API_TOKEN || secrets.GITHUB_TOKEN }}
+          ghpagesprefix: https://ThisCrashesYouOnPhone.github.io/aScrobble
+
