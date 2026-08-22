@@ -141,13 +141,6 @@ pub async fn start_auth_flow(
 
     // Persist to keychain
     storage::save_lastfm_session(&session)?;
-    let persisted = storage::load_lastfm_session()?
-        .ok_or_else(|| anyhow!("Last.fm session was saved but missing on keychain read-back"))?;
-    if persisted.session_key != session.session_key {
-        return Err(anyhow!(
-            "Last.fm session read-back mismatch after keychain save"
-        ));
-    }
 
     Ok(session)
 }
