@@ -116,4 +116,5 @@ jobs:
             See the assets below to download and install.
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true
           args: --target ${{ matrix.target }}
