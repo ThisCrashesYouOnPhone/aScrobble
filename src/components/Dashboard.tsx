@@ -181,6 +181,8 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
   const [showAllScrobbles, setShowAllScrobbles] = useState(false);
   const [decodedAppleExpiry, setDecodedAppleExpiry] = useState<string | null>(creds.apple?.expires_at || null);
   const [updateAvailable, setUpdateAvailable] = useState<{ version: string; body: string | null } | null>(null);
+  const [updateObject, setUpdateObject] = useState<any>(null);
+  const [showUpdateNotes, setShowUpdateNotes] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [firstRunPending, setFirstRunPending] = useState(false);
   const [countdownSec, setCountdownSec] = useState<number | null>(null);
@@ -336,6 +338,7 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
         checkUpdate().then((update) => {
           if (update?.available) {
             setUpdateAvailable({ version: update.version, body: update.body ?? null });
+            setUpdateObject(update);
           }
         }).catch(() => { /* no update server configured yet, or offline */ });
 
@@ -471,15 +474,13 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
   };
 
   const handleInstallUpdate = async () => {
+    if (!updateObject) return;
     setInstalling(true);
     try {
-      const update = await checkUpdate();
-      if (update?.available) {
-        // Clear the sync version so after relaunch we prompt to redeploy worker
-        localStorage.removeItem("ascrobble_worker_sync_version");
-        await update.downloadAndInstall();
-        await relaunch();
-      }
+      // Clear the sync version so after relaunch we prompt to redeploy worker
+      localStorage.removeItem("ascrobble_worker_sync_version");
+      await updateObject.downloadAndInstall();
+      await relaunch();
     } catch (e) {
       console.error("Update install failed:", e);
       setInstalling(false);
@@ -566,32 +567,49 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
       )}
       {/* App update banner */}
       {updateAvailable && (
-        <div className="card" style={{ border: "1px solid rgba(100,200,255,0.4)", background: "rgba(100,200,255,0.05)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-            <div>
-              <strong style={{ color: "#64c8ff" }}>🚀 Update available — v{updateAvailable.version}</strong>
-              <p style={{ margin: "4px 0 0", fontSize: 12, opacity: 0.75 }}>
-                {updateAvailable.body ?? "A new version of aScrobble is ready. Your scrobbler keeps running while you update."}
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              <button
-                className="btn"
-                onClick={() => setUpdateAvailable(null)}
-                style={{ opacity: 0.6, fontSize: 12 }}
-              >
-                Later
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={handleInstallUpdate}
-                disabled={installing}
-                style={{ whiteSpace: "nowrap" }}
-              >
-                {installing ? "Installing..." : "Install & relaunch"}
-              </button>
-            </div>
+        <div className="update-banner-floating">
+          <div className="update-banner-header">
+            <span className="update-banner-badge">🚀 Update ready</span>
+            <button className="update-banner-close" onClick={() => setUpdateAvailable(null)} title="Dismiss">
+              ✕
+            </button>
           </div>
+          <div className="update-banner-title">aScrobble v{updateAvailable.version} is available</div>
+          <div className="update-banner-desc">
+            Installs silently in the background — your scrobbler keeps running. Takes about 10 seconds.
+          </div>
+          <div className="update-banner-actions">
+            <button
+              className="btn-update-install"
+              onClick={handleInstallUpdate}
+              disabled={installing}
+            >
+              {installing ? "⏳ Installing…" : "⬇ Install & relaunch"}
+            </button>
+            <button
+              className="update-notes-toggle"
+              onClick={() => setShowUpdateNotes(v => !v)}
+            >
+              {showUpdateNotes ? "▲ Hide" : "▼ What's new"}
+            </button>
+          </div>
+          {showUpdateNotes && updateAvailable.body && (
+            <div className="update-notes-box">
+              {updateAvailable.body
+                .replace(/##[^\n]*/g, "")
+                .replace(/###\s*/g, "")
+                .replace(/\*\*([^*]+)\*\*/g, "$1")
+                .replace(/`([^`]+)`/g, "$1")
+                .replace(/---[\s\S]*?⚠️.*/, "")
+                .trim()
+                .split("\n")
+                .filter((l: string) => l.trim())
+                .map((line: string, i: number) => (
+                  <div key={i} style={{ marginBottom: 3 }}>{line.trim()}</div>
+                ))
+              }
+            </div>
+          )}
         </div>
       )}
 
