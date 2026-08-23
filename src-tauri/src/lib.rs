@@ -1,22 +1,14 @@
 //! aScrobble — desktop wizard for deploying an Apple Music → Last.fm scrobbler
 //! to the user's own Cloudflare Workers account.
-//!
-//! The desktop app is a one-shot tool. It captures credentials for:
-//!   1. Apple Music (via an embedded webview loading music.apple.com)
-//!   2. Last.fm (via RFC 8252 loopback OAuth)
-//!   3. Cloudflare (via a pasted API token)
-//!
-//! Then it uploads the bundled worker.js to the user's Cloudflare account
-//! with a 5-minute cron trigger, writes credentials as Worker secrets, and
-//! seeds the KV ledger. After that the app can be closed and the scrobbler
-//! runs forever on Cloudflare.
 
 mod auth;
 mod commands;
 mod deploy;
 mod storage;
 
-use tauri::Manager;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Manager, WindowEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,8 +17,9 @@ pub fn run() {
     tauri::Builder::default()
         // Prevent multiple copies of the app running simultaneously
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            // If the user re-launches, focus the existing window
+            // If the user re-launches, focus and unhide the existing window
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
                 let _ = window.unminimize();
                 let _ = window.set_focus();
             }
@@ -36,6 +29,78 @@ pub fn run() {
         .plugin(tauri_plugin_oauth::init())       // localhost loopback for Last.fm
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::AppleScript,
+            Some(vec!["--minimized"]),
+        ))
+
+        .setup(|app| {
+            // Build system tray menu
+            let show_item = MenuItem::with_id(app, "show", "Show aScrobble", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "Quit aScrobble", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+            let mut builder = TrayIconBuilder::new().menu(&menu);
+            if let Some(icon) = app.default_window_icon() {
+                builder = builder.icon(icon.clone());
+            }
+
+            let _tray = builder
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.unminimize();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let is_visible = window.is_visible().unwrap_or(false);
+                            if is_visible {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build(app)?;
+
+            // If launched with --minimized (e.g. system boot), hide window immediately
+            let args: Vec<String> = std::env::args().collect();
+            if args.contains(&"--minimized".to_string()) {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
+
+            Ok(())
+        })
+
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let settings = storage::load_user_settings().unwrap_or_default();
+                if settings.minimize_to_tray {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
 
         .invoke_handler(tauri::generate_handler![
             // Apple Music
@@ -64,6 +129,7 @@ pub fn run() {
             // Settings
             commands::save_user_settings,
             commands::load_user_settings,
+
 
             // Deployment
             commands::deploy_worker,

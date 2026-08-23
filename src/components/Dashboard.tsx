@@ -187,7 +187,7 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
   const [firstRunPending, setFirstRunPending] = useState(false);
   const [countdownSec, setCountdownSec] = useState<number | null>(null);
   const [resetToast, setResetToast] = useState<string | null>(null);
-  const [showWorkerLog, setShowWorkerLog] = useState(true);
+  const [showWorkerLog, setShowWorkerLog] = useState(false);
   const [workerOutOfSync, setWorkerOutOfSync] = useState(false);
   const [syncingWorker, setSyncingWorker] = useState(false);
 

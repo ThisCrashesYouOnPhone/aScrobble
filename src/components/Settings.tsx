@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+const enableAutostart = () => invoke("plugin:autostart|enable");
+const disableAutostart = () => invoke("plugin:autostart|disable");
+const isAutostartEnabled = () => invoke<boolean>("plugin:autostart|is_enabled");
+
 interface SettingsProps {
   onBack: () => void;
 }
@@ -11,6 +15,7 @@ export function Settings({ onBack }: SettingsProps) {
   const [pollingInterval, setPollingInterval] = useState(1);
   const [notifications, setNotifications] = useState(true);
   const [minimizeToTray, setMinimizeToTray] = useState(true);
+  const [autostart, setAutostart] = useState(false);
   const [logsLoading, setLogsLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [apiTestLoading, setApiTestLoading] = useState(false);
@@ -40,6 +45,7 @@ export function Settings({ onBack }: SettingsProps) {
         setAccentColor(parsed.accentColor || "brand");
         setNotifications(parsed.notifications !== false);
         setMinimizeToTray(parsed.minimizeToTray !== false);
+        setAutostart(parsed.autostart === true);
         // Apply theme now (in case App.tsx didn't on load)
         document.documentElement.setAttribute("data-theme", parsed.theme || "dark");
         document.documentElement.setAttribute("data-accent", parsed.accentColor || "brand");
@@ -49,9 +55,16 @@ export function Settings({ onBack }: SettingsProps) {
       document.documentElement.setAttribute("data-theme", "dark");
       document.documentElement.setAttribute("data-accent", "brand");
     }
-    // Load poll interval from Tauri keyring (single source of truth)
-    invoke<{ poll_interval_minutes: number }>("load_user_settings")
-      .then((s) => setPollingInterval(s.poll_interval_minutes || 1))
+    // Load poll interval & tray settings from Rust backend
+    invoke<{ poll_interval_minutes: number; minimize_to_tray: boolean; autostart: boolean }>("load_user_settings")
+      .then((s) => {
+        if (s.poll_interval_minutes) setPollingInterval(s.poll_interval_minutes);
+        if (typeof s.minimize_to_tray === "boolean") setMinimizeToTray(s.minimize_to_tray);
+      })
+      .catch(() => {});
+
+    isAutostartEnabled()
+      .then((enabled: boolean) => setAutostart(enabled))
       .catch(() => {});
   }, []);
 
@@ -63,6 +76,7 @@ export function Settings({ onBack }: SettingsProps) {
       pollingInterval,
       notifications,
       minimizeToTray,
+      autostart,
       [key]: value,
     };
     
@@ -75,14 +89,29 @@ export function Settings({ onBack }: SettingsProps) {
       document.documentElement.setAttribute("data-accent", value as string);
     }
 
-    // Sync poll interval to Tauri keyring so Dashboard reads the same value
-    if (key === 'pollingInterval') {
-      invoke("save_user_settings", { settings: { poll_interval_minutes: value as number } }).catch(console.error);
+    const nextPoll = key === 'pollingInterval' ? (value as number) : pollingInterval;
+    const nextTray = key === 'minimizeToTray' ? (value as boolean) : minimizeToTray;
+    const nextAuto = key === 'autostart' ? (value as boolean) : autostart;
+
+    invoke("save_user_settings", {
+      settings: {
+        poll_interval_minutes: nextPoll,
+        minimize_to_tray: nextTray,
+        autostart: nextAuto,
+      }
+    }).catch(console.error);
+
+    if (key === 'autostart') {
+      if (value) {
+        enableAutostart().catch(console.error);
+      } else {
+        disableAutostart().catch(console.error);
+      }
     }
     
     setToast("Setting saved ✓");
     setTimeout(() => setToast(null), 2000);
-  }, [theme, accentColor, pollingInterval, notifications, minimizeToTray]);
+  }, [theme, accentColor, pollingInterval, notifications, minimizeToTray, autostart]);
 
 type SettingsState = {
   theme: "dark" | "oled" | "auto";
@@ -90,6 +119,7 @@ type SettingsState = {
   pollingInterval: number;
   notifications: boolean;
   minimizeToTray: boolean;
+  autostart: boolean;
 };
 
   // Download diagnostic logs
@@ -256,6 +286,22 @@ type SettingsState = {
                 onChange={(v) => {
                   setMinimizeToTray(v);
                   updateSetting('minimizeToTray', v);
+                }} 
+              />
+            </div>
+          </div>
+
+          <div className="settings-row">
+            <div className="settings-info">
+              <label>Start on System Startup</label>
+              <p>Automatically launch aScrobble in the background (hidden to tray) when your PC boots up</p>
+            </div>
+            <div className="settings-control">
+              <Toggle 
+                checked={autostart} 
+                onChange={(v) => {
+                  setAutostart(v);
+                  updateSetting('autostart', v);
                 }} 
               />
             </div>

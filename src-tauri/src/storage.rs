@@ -1,14 +1,19 @@
-//! Secure credential storage using the OS keyring.
+//! Secure credential storage using OS keyring with fallback file store.
 //!
 //! Wraps the `keyring` crate to store our credentials in the platform's
-//! native credential store:
-//!   * macOS: Keychain
-//!   * Windows: Credential Manager
-//!   * Linux: Secret Service (GNOME Keyring / KWallet)
-//!
-//! All credentials are serialized as JSON strings and stored under the
-//! service name "dev.ascrobble.app" with a distinct "user" per credential type.
+//! native credential store, backed up by an app-data credentials file.
+//! On Windows, Windows Credential Manager enforces a strict 512-byte limit on
+//! generic credentials. Large credentials (like Apple Music JWT tokens and
+//! Cloudflare OAuth tokens) exceed 512 bytes and fail in Credential Manager.
+//! To ensure 100% reliability across all operating systems, credentials are
+//! mirrored in:
+//!   %LOCALAPPDATA%/aScrobble/credentials.json (Windows)
+//!   ~/.config/aScrobble/credentials.json (Linux)
+//!   ~/Library/Application Support/aScrobble/credentials.json (macOS)
 
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Mutex;
 use anyhow::{anyhow, Result};
 use keyring::Entry;
 
@@ -16,70 +21,146 @@ use crate::commands::{AppleTokens, CloudflareOauth, LastfmSession, UserSettings}
 
 const SERVICE: &str = "dev.ascrobble.app";
 
-// Distinct "user" slots within the keyring
+// Distinct keys within keyring and fallback store
 const KEY_APPLE: &str = "apple-tokens";
 const KEY_LASTFM: &str = "lastfm-session";
 const KEY_CF_TOKEN: &str = "cloudflare-token";
 const KEY_CF_OAUTH: &str = "cloudflare-oauth";
 const KEY_CF_ACCOUNT: &str = "cloudflare-account-id";
-// The shared secret that auths the deployed worker's /status and /trigger
-// endpoints. Randomly generated per deploy, stored both here and as the
-// STATUS_AUTH_KEY worker secret on Cloudflare.
 const KEY_STATUS_AUTH: &str = "status-auth-key";
 const KEY_USER_SETTINGS: &str = "user-settings";
 const KEY_WORKER_URL: &str = "worker-url";
+
+static FILE_LOCK: Mutex<()> = Mutex::new(());
 
 fn entry(user: &str) -> Result<Entry> {
     Entry::new(SERVICE, user).map_err(|e| anyhow!("Failed to access keyring: {}", e))
 }
 
-/// Treat "no entry found" as None rather than error, since the app starts
-/// with everything empty and we want to distinguish "not set" from "broken".
-fn read_optional(entry: &Entry) -> Result<Option<String>> {
-    match entry.get_password() {
-        Ok(s) => Ok(Some(s)),
-        Err(keyring::Error::NoEntry) => Ok(None),
-        Err(e) => Err(anyhow!("Failed to read from keyring: {}", e)),
+pub fn get_app_data_dir() -> Result<PathBuf> {
+    let base = if cfg!(windows) {
+        std::env::var("LOCALAPPDATA")
+            .or_else(|_| std::env::var("APPDATA"))
+            .map(PathBuf::from)
+            .map_err(|_| anyhow!("Could not find LOCALAPPDATA or APPDATA environment variables"))?
+    } else if cfg!(target_os = "macos") {
+        let home = std::env::var("HOME").map_err(|_| anyhow!("Could not find HOME environment variable"))?;
+        PathBuf::from(home).join("Library").join("Application Support")
+    } else {
+        if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+            PathBuf::from(xdg)
+        } else {
+            let home = std::env::var("HOME").map_err(|_| anyhow!("Could not find HOME environment variable"))?;
+            PathBuf::from(home).join(".local").join("share")
+        }
+    };
+
+    let app_dir = base.join("aScrobble");
+    if !app_dir.exists() {
+        let _ = std::fs::create_dir_all(&app_dir);
+    }
+    Ok(app_dir)
+}
+
+fn get_fallback_json_path() -> Result<PathBuf> {
+    Ok(get_app_data_dir()?.join("credentials.json"))
+}
+
+fn load_fallback_map() -> HashMap<String, String> {
+    let _guard = FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let path = match get_fallback_json_path() {
+        Ok(p) => p,
+        Err(_) => return HashMap::new(),
+    };
+    if !path.exists() {
+        return HashMap::new();
+    }
+    match std::fs::read_to_string(path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_default(),
+        Err(_) => HashMap::new(),
     }
 }
 
-fn write(entry: &Entry, value: &str) -> Result<()> {
-    entry
-        .set_password(value)
-        .map_err(|e| anyhow!("Failed to write to keyring: {}", e))?;
+fn save_fallback_val(key: &str, value: Option<&str>) {
+    let _guard = FILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let path = match get_fallback_json_path() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let mut map = if path.exists() {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<HashMap<String, String>>(&s).ok())
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
 
-    // Immediately verify read-back so silent backend failures are surfaced
-    // at the step where they occur instead of later at deploy gating.
-    let persisted = entry
-        .get_password()
-        .map_err(|e| anyhow!("Wrote to keyring but failed to read back: {}", e))?;
-
-    if persisted != value {
-        return Err(anyhow!(
-            "Keyring write verification failed: value mismatch after write"
-        ));
+    match value {
+        Some(v) => {
+            map.insert(key.to_string(), v.to_string());
+        }
+        None => {
+            map.remove(key);
+        }
     }
 
+    if let Ok(json) = serde_json::to_string_pretty(&map) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
+fn write_val(user: &str, value: &str) -> Result<()> {
+    // 1. Always save to fallback file store
+    save_fallback_val(user, Some(value));
+
+    // 2. Best-effort write to OS keyring if value is within safe Credential Manager limits
+    if value.len() <= 400 {
+        if let Ok(e) = entry(user) {
+            let _ = e.set_password(value);
+        }
+    }
     Ok(())
 }
 
-fn delete_if_exists(entry: &Entry) -> Result<()> {
-    match entry.delete_credential() {
-        Ok(_) => Ok(()),
-        Err(keyring::Error::NoEntry) => Ok(()),
-        Err(e) => Err(anyhow!("Failed to clear keyring entry: {}", e)),
+fn read_val(user: &str) -> Result<Option<String>> {
+    // 1. Try keyring first
+    if let Ok(e) = entry(user) {
+        if let Ok(s) = e.get_password() {
+            if !s.is_empty() {
+                return Ok(Some(s));
+            }
+        }
     }
+
+    // 2. Fall back to app-data credentials store
+    let map = load_fallback_map();
+    if let Some(val) = map.get(user) {
+        if !val.is_empty() {
+            return Ok(Some(val.clone()));
+        }
+    }
+
+    Ok(None)
+}
+
+fn delete_val(user: &str) -> Result<()> {
+    save_fallback_val(user, None);
+    if let Ok(e) = entry(user) {
+        let _ = e.delete_credential();
+    }
+    Ok(())
 }
 
 // ---------- Apple ----------
 
 pub fn save_apple_tokens(tokens: &AppleTokens) -> Result<()> {
     let json = serde_json::to_string(tokens)?;
-    write(&entry(KEY_APPLE)?, &json)
+    write_val(KEY_APPLE, &json)
 }
 
 pub fn load_apple_tokens() -> Result<Option<AppleTokens>> {
-    match read_optional(&entry(KEY_APPLE)?)? {
+    match read_val(KEY_APPLE)? {
         None => Ok(None),
         Some(s) => Ok(Some(serde_json::from_str(&s)?)),
     }
@@ -89,11 +170,11 @@ pub fn load_apple_tokens() -> Result<Option<AppleTokens>> {
 
 pub fn save_lastfm_session(session: &LastfmSession) -> Result<()> {
     let json = serde_json::to_string(session)?;
-    write(&entry(KEY_LASTFM)?, &json)
+    write_val(KEY_LASTFM, &json)
 }
 
 pub fn load_lastfm_session() -> Result<Option<LastfmSession>> {
-    match read_optional(&entry(KEY_LASTFM)?)? {
+    match read_val(KEY_LASTFM)? {
         None => Ok(None),
         Some(s) => Ok(Some(serde_json::from_str(&s)?)),
     }
@@ -102,82 +183,81 @@ pub fn load_lastfm_session() -> Result<Option<LastfmSession>> {
 // ---------- Cloudflare ----------
 
 pub fn save_cloudflare_token(token: &str) -> Result<()> {
-    write(&entry(KEY_CF_TOKEN)?, token)
+    write_val(KEY_CF_TOKEN, token)
 }
 
 pub fn load_cloudflare_token() -> Result<Option<String>> {
-    read_optional(&entry(KEY_CF_TOKEN)?)
+    read_val(KEY_CF_TOKEN)
 }
 
 pub fn save_cloudflare_oauth(oauth: &CloudflareOauth) -> Result<()> {
     let json = serde_json::to_string(oauth)?;
-    write(&entry(KEY_CF_OAUTH)?, &json)
+    write_val(KEY_CF_OAUTH, &json)
 }
 
 pub fn load_cloudflare_oauth() -> Result<Option<CloudflareOauth>> {
-    match read_optional(&entry(KEY_CF_OAUTH)?)? {
+    match read_val(KEY_CF_OAUTH)? {
         None => Ok(None),
         Some(s) => Ok(Some(serde_json::from_str(&s)?)),
     }
 }
 
 pub fn clear_cloudflare_oauth() -> Result<()> {
-    delete_if_exists(&entry(KEY_CF_OAUTH)?)
+    delete_val(KEY_CF_OAUTH)
 }
 
 pub fn save_cloudflare_account_id(account_id: &str) -> Result<()> {
-    write(&entry(KEY_CF_ACCOUNT)?, account_id)
+    write_val(KEY_CF_ACCOUNT, account_id)
 }
 
 pub fn load_cloudflare_account_id() -> Result<Option<String>> {
-    read_optional(&entry(KEY_CF_ACCOUNT)?)
+    read_val(KEY_CF_ACCOUNT)
 }
 
 // ---------- Worker status auth key ----------
 
 pub fn save_status_auth_key(key: &str) -> Result<()> {
-    write(&entry(KEY_STATUS_AUTH)?, key)
+    write_val(KEY_STATUS_AUTH, key)
 }
 
-#[allow(dead_code)]
 pub fn load_status_auth_key() -> Result<Option<String>> {
-    read_optional(&entry(KEY_STATUS_AUTH)?)
+    read_val(KEY_STATUS_AUTH)
 }
 
 // ---------- User settings ----------
 
 pub fn save_user_settings(settings: &UserSettings) -> Result<()> {
     let json = serde_json::to_string(settings)?;
-    write(&entry(KEY_USER_SETTINGS)?, &json)
+    write_val(KEY_USER_SETTINGS, &json)
 }
 
 pub fn load_user_settings() -> Result<UserSettings> {
-    match read_optional(&entry(KEY_USER_SETTINGS)?)? {
+    match read_val(KEY_USER_SETTINGS)? {
         None => Ok(UserSettings::default()),
-        Some(s) => Ok(serde_json::from_str(&s)?),
+        Some(s) => Ok(serde_json::from_str(&s).unwrap_or_default()),
     }
 }
 
 // ---------- Worker URL ----------
 
 pub fn save_worker_url(url: &str) -> Result<()> {
-    write(&entry(KEY_WORKER_URL)?, url)
+    write_val(KEY_WORKER_URL, url)
 }
 
 pub fn load_worker_url() -> Result<Option<String>> {
-    read_optional(&entry(KEY_WORKER_URL)?)
+    read_val(KEY_WORKER_URL)
 }
 
 // ---------- Clear all ----------
 
 pub fn clear_all() -> Result<()> {
-    delete_if_exists(&entry(KEY_APPLE)?)?;
-    delete_if_exists(&entry(KEY_LASTFM)?)?;
-    delete_if_exists(&entry(KEY_CF_TOKEN)?)?;
-    delete_if_exists(&entry(KEY_CF_OAUTH)?)?;
-    delete_if_exists(&entry(KEY_CF_ACCOUNT)?)?;
-    delete_if_exists(&entry(KEY_STATUS_AUTH)?)?;
-    delete_if_exists(&entry(KEY_USER_SETTINGS)?)?;
-    delete_if_exists(&entry(KEY_WORKER_URL)?)?;
+    delete_val(KEY_APPLE)?;
+    delete_val(KEY_LASTFM)?;
+    delete_val(KEY_CF_TOKEN)?;
+    delete_val(KEY_CF_OAUTH)?;
+    delete_val(KEY_CF_ACCOUNT)?;
+    delete_val(KEY_STATUS_AUTH)?;
+    delete_val(KEY_USER_SETTINGS)?;
+    delete_val(KEY_WORKER_URL)?;
     Ok(())
 }

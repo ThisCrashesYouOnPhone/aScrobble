@@ -2003,17 +2003,175 @@ code {
 /* ===== Floating Update Banner ===== */
 .update-banner-floating {
   position: relative;
-  background: linear-gradient(135deg, rgba(24, 30, 48, 0.92) 0%, rgba(15, 18, 30, 0.96) 100%);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-brand) 8%, #0e0e0e) 0%,
+    color-mix(in srgb, var(--color-brand) 4%, #080808) 100%
+  );
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(99, 102, 241, 0.35);
+  border: 1px solid color-mix(in srgb, var(--color-brand) 35%, transparent);
   border-radius: 18px;
   padding: 20px 24px;
   margin-bottom: 24px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), 0 0 30px rgba(99, 102, 241, 0.15);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.5),
+    0 0 32px color-mix(in srgb, var(--color-brand) 12%, transparent);
   transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
 }
+
+/* Apple Music gradient top stripe — brand red → hot pink */
+.update-banner-floating::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-brand) 0%, #ff6b81 50%, var(--color-brand-hover) 100%);
+}
+
+.update-banner-floating:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--color-brand) 55%, transparent);
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.6),
+    0 0 48px color-mix(in srgb, var(--color-brand) 22%, transparent);
+}
+
+.update-banner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.update-banner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--color-brand) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-brand) 40%, transparent);
+  color: color-mix(in srgb, var(--color-brand) 90%, #ffffff);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.update-banner-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s ease;
+}
+
+.update-banner-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  transform: scale(1.08);
+}
+
+.update-banner-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 6px;
+  letter-spacing: -0.01em;
+}
+
+.update-banner-desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.72);
+  margin-bottom: 16px;
+}
+
+.update-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-update-install {
+  background: linear-gradient(135deg, var(--color-brand) 0%, #ff6b81 100%);
+  color: #ffffff;
+  font-weight: 600;
+  border: none;
+  padding: 10px 22px;
+  border-radius: 24px;
+  font-size: 13px;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--color-brand) 40%, transparent);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-update-install:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--color-brand-hover) 0%, #ff8096 100%);
+  box-shadow: 0 6px 24px color-mix(in srgb, var(--color-brand) 55%, transparent);
+  transform: translateY(-1px);
+}
+
+.btn-update-install:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.update-notes-toggle {
+  background: none;
+  border: none;
+  color: color-mix(in srgb, var(--color-brand) 80%, #ffffff);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.15s ease;
+  font-family: inherit;
+}
+
+.update-notes-toggle:hover {
+  color: var(--color-brand-hover);
+  text-decoration: underline;
+}
+
+.update-notes-box {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.update-notes-box ul {
+  padding-left: 18px;
+  margin: 6px 0;
+}
+
+.update-notes-box li {
+  margin-bottom: 4px;
+}
+
 
 .update-banner-floating::before {
   content: '';

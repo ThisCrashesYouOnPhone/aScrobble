@@ -85,12 +85,22 @@ pub struct StoredCredentials {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserSettings {
     pub poll_interval_minutes: u32, // 1, 2, 5, 10, 15, or 30
+    #[serde(default = "default_true")]
+    pub minimize_to_tray: bool,
+    #[serde(default)]
+    pub autostart: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for UserSettings {
     fn default() -> Self {
         Self {
             poll_interval_minutes: 1,
+            minimize_to_tray: true,
+            autostart: false,
         }
     }
 }
@@ -429,7 +439,8 @@ pub async fn open_data_folder(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn update_poll_interval(minutes: u32) -> Result<(), String> {
-    let settings = UserSettings { poll_interval_minutes: minutes };
+    let mut settings = storage::load_user_settings().unwrap_or_default();
+    settings.poll_interval_minutes = minutes;
     storage::save_user_settings(&settings).map_err(err)?;
 
     if let Ok(token) = crate::deploy::resolve_cloudflare_api_token().await {
@@ -575,6 +586,10 @@ pub async fn save_log_file(app: AppHandle, content: String) -> Result<String, St
     std::fs::write(&file_path, content).map_err(|e| e.to_string())?;
     Ok(file_path.to_string_lossy().to_string())
 }
+
+// ---------- Autostart (managed directly via @tauri-apps/plugin-autostart) ----------
+
+
 
 
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { StoredCredentials, WizardStep } from "./types";
-import { storageGetAll } from "./lib/tauri";
+import { storageGetAll, storageClearAll } from "./lib/tauri";
 import { Stepper } from "./components/Stepper";
 import { Welcome } from "./components/Welcome";
 import { AppleStep } from "./components/AppleStep";
@@ -317,7 +317,22 @@ export default function App() {
           <a href="https://github.com/ThisCrashesYouOnPhone/aScrobble" target="_blank" rel="noreferrer">
             GitHub
           </a>
-          <a href="#" onClick={(e) => { e.preventDefault(); setStep("welcome"); }}>
+          <a
+            href="#"
+            onClick={async (e) => {
+              e.preventDefault();
+              if (window.confirm("Reset all stored credentials and restart setup?")) {
+                try {
+                  await storageClearAll();
+                } catch (err) {
+                  console.error("Failed to clear storage:", err);
+                }
+                setCreds(null);
+                setSyncError(null);
+                setStep("welcome");
+              }
+            }}
+          >
             Reset
           </a>
         </div>
