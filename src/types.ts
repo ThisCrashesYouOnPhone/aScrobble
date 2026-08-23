@@ -82,4 +82,17 @@ export interface WorkerLedger {
   log_entries?: LogEntry[];
 }
 
+export interface HealthStatus {
+  apple_ok: boolean;
+  apple_days_remaining: number | null;
+  apple_expiry_iso: string | null;
+  apple_expires_soon: boolean;
+  apple_expired: boolean;
+  lastfm_ok: boolean;
+  worker_deployed: boolean;
+  worker_reachable: boolean;
+  worker_error: string | null;
+  circuit_open: boolean;
+}
+
 export type WizardStep = "welcome" | "apple" | "lastfm" | "cloudflare" | "deploy" | "done" | "dashboard" | "settings";

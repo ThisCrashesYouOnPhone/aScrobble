@@ -4,6 +4,7 @@
 mod auth;
 mod commands;
 mod deploy;
+mod health;
 mod storage;
 
 use tauri::menu::{Menu, MenuItem};
@@ -29,6 +30,7 @@ pub fn run() {
         .plugin(tauri_plugin_oauth::init())       // localhost loopback for Last.fm
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::AppleScript,
             Some(vec!["--minimized"]),
@@ -89,6 +91,20 @@ pub fn run() {
                 }
             }
 
+            // Spawn proactive health check task (immediate check on boot + every 6 hours)
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let status = health::run_and_emit_health(&handle).await;
+                health::maybe_notify_os(&handle, &status).await;
+
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+                loop {
+                    interval.tick().await;
+                    let status = health::run_and_emit_health(&handle).await;
+                    health::maybe_notify_os(&handle, &status).await;
+                }
+            });
+
             Ok(())
         })
 
@@ -130,6 +146,8 @@ pub fn run() {
             commands::save_user_settings,
             commands::load_user_settings,
 
+            // Health Status
+            commands::get_health_status,
 
             // Deployment
             commands::deploy_worker,

@@ -2314,5 +2314,167 @@ code {
   margin-bottom: 4px;
 }
 
+/* ===== Health Banners ===== */
+.health-banners-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.health-banner {
+  position: relative;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 18px;
+  padding: 20px 24px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.health-banner-warning {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12) 0%, rgba(20, 15, 8, 0.96) 100%);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.health-banner-warning::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #f59e0b 0%, #fbbf24 100%);
+}
+
+.health-banner-danger {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.14) 0%, rgba(25, 10, 10, 0.96) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.health-banner-danger::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #ef4444 0%, #f87171 100%);
+}
+
+.health-banner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.health-banner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.health-banner-badge.warning {
+  background: rgba(245, 158, 11, 0.18);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  color: #fbbf24;
+}
+
+.health-banner-badge.danger {
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+.health-banner-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 6px;
+}
+
+.health-banner-desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.78);
+  margin-bottom: 16px;
+}
+
+.health-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-health-action {
+  color: #ffffff;
+  font-weight: 600;
+  border: none;
+  padding: 10px 22px;
+  border-radius: 24px;
+  font-size: 13px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-health-action.warning {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  box-shadow: 0 4px 16px rgba(245, 158, 11, 0.35);
+}
+
+.btn-health-action.danger {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 100%);
+  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.35);
+}
+
+.dev-health-tester {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+.dev-tester-label {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.btn-dev-pill {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  padding: 4px 10px;
+  border-radius: 14px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-dev-pill:hover, .btn-dev-pill.active {
+  background: rgba(255, 255, 255, 0.22);
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.btn-dev-pill.reset {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #f87171;
+}
+
+
 
 

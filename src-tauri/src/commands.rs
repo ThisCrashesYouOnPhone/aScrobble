@@ -587,7 +587,12 @@ pub async fn save_log_file(app: AppHandle, content: String) -> Result<String, St
     Ok(file_path.to_string_lossy().to_string())
 }
 
-// ---------- Autostart (managed directly via @tauri-apps/plugin-autostart) ----------
+// ---------- Health Status ----------
+
+#[tauri::command]
+pub async fn get_health_status() -> Result<crate::health::HealthStatus, String> {
+    Ok(crate::health::check_health().await)
+}
 
 
 

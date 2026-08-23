@@ -16,6 +16,10 @@
     "oauth:allow-start",
     "oauth:allow-cancel",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "notification:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

@@ -2,7 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { open } from "@tauri-apps/plugin-shell";
 import { check as checkUpdate } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
-import type { StoredCredentials, WorkerLedger, UserSettings, LogEntry } from "../types";
+import type { StoredCredentials, WorkerLedger, UserSettings, LogEntry, HealthStatus } from "../types";
+import { HealthBanners } from "./HealthBanners";
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   getWorkerUrl,
   getStatusAuthKey,
@@ -190,6 +193,24 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
   const [showWorkerLog, setShowWorkerLog] = useState(false);
   const [workerOutOfSync, setWorkerOutOfSync] = useState(false);
   const [syncingWorker, setSyncingWorker] = useState(false);
+  const [healthStatus, setHealthStatus] = useState<HealthStatus | null>(null);
+
+  useEffect(() => {
+    invoke<HealthStatus>("get_health_status")
+      .then(setHealthStatus)
+      .catch(() => {});
+
+    let unlisten: UnlistenFn | null = null;
+    listen<HealthStatus>("health-status", (event) => {
+      setHealthStatus(event.payload);
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     if (!workerUrl || !authKey) return;
@@ -565,6 +586,12 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
           {resetToast}
         </div>
       )}
+      {/* Health / Alert Banners */}
+      <HealthBanners
+        status={healthStatus}
+        onRotateApple={handleRotate}
+        onFixWorker={handleSyncWorker}
+      />
       {/* App update banner */}
       {updateAvailable && (
         <div className="update-banner-floating">

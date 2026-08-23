@@ -25,6 +25,7 @@ tauri-plugin-single-instance = "2"  # prevent double-launch
 tauri-plugin-updater = "2"          # in-app update checks
 tauri-plugin-process = "2"          # relaunch after update
 tauri-plugin-autostart = "2"        # launch on system boot
+tauri-plugin-notification = "2"     # OS desktop notifications
 
 # HTTP + serialization
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
