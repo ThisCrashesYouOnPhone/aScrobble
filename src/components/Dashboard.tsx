@@ -366,7 +366,7 @@ export function Dashboard({ creds, onReset, onStatusChange }: DashboardProps) {
         // Worker-sync check: if localStorage records a different app version
         // than the one running now, a relaunch after an update just happened.
         // Prompt the user to redeploy so the worker code stays in sync.
-        const APP_VERSION = "1.1.2";
+        const APP_VERSION = "1.1.3";
         const storedWorkerSyncVersion = localStorage.getItem("ascrobble_worker_sync_version");
         if (storedWorkerSyncVersion && storedWorkerSyncVersion !== APP_VERSION) {
           setWorkerOutOfSync(true);
