@@ -312,7 +312,7 @@ export default function App() {
       </main>
 
       <footer className="app-footer">
-        <span>aScrobble v1.1.1</span>
+        <span>aScrobble v1.1.2</span>
         <div className="footer-links">
           <a href="https://github.com/ThisCrashesYouOnPhone/aScrobble" target="_blank" rel="noreferrer">
             GitHub
